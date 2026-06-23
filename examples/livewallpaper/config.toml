@@ -1,13 +1,15 @@
 [logic]
-speed = 0.5
-amplitude = 0.02
-frequency = 8.0
+wave_speed = 0.5
+wave_amplitude = 0.03
+wave_frequency = 10.0
 brightness = 1.0
-mouse_influence = 1.0
+mouse_radius = 0.3
+mouse_strength = 0.15
 
 [features]
-mouse_warp = true
-background_blend = false
+enable_wave = true
+enable_mouse_warp = true
+show_vignette = true
 
 mode = "wallpaper"
 shader = "fs_live_wallpaper"
