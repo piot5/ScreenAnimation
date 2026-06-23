@@ -136,8 +136,10 @@ fn main() -> anyhow::Result<()> {
         Commands::Wallpaper { path } => (path.clone(), true),
     };
 
+    eprintln!("Loading package: {}", path);
     // Load animation package from .flow file
     let flow = FlowPackage::load(&path)?;
+    eprintln!("✓ Package loaded successfully");
 
     // Audio setup
     // Initialize default audio output device (usually speakers/headphones)
@@ -152,9 +154,11 @@ fn main() -> anyhow::Result<()> {
         // Required for correct rendering on mixed-DPI setups
         // Windows 10 1703+ feature
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        eprintln!("✓ DPI awareness set");
         
         // Get instance handle (required for window creation)
         let hi = GetModuleHandleW(None)?;
+        eprintln!("✓ Got instance handle");
         let class_name = w!("WgpuAnim");
 
         // Register window class with our custom WndProc
@@ -168,6 +172,8 @@ fn main() -> anyhow::Result<()> {
         // Create WGPU instance (uses default backends: Vulkan, DX12, Metal)
         let inst = wgpu::Instance::default();
 
+        eprintln!("Mode: {}", if is_wp { "Wallpaper" } else { "Animation" });
+        
         // Determine which shader entry points to compile
         // V2 sequences may use multiple shaders, V1 uses one
         let entries: Vec<String> = if !flow.config.sequence.is_empty() {
@@ -193,19 +199,25 @@ fn main() -> anyhow::Result<()> {
             vec!["fs_default".to_string(), sh_n]
         };
 
+        eprintln!("Compiling {} shader entries: {:?}", entries.len(), entries);
         // Convert to string slices for GPU initialization
         let entry_refs: Vec<&str> = entries.iter().map(|s: &String| s.as_str()).collect();
         
         // Initialize GPU core (compile shaders, create pipelines)
+        eprintln!("Initializing GPU...");
         let gpu = pollster::block_on(GpuCore::new(&inst, &flow.shader_src, &entry_refs))?;
+        eprintln!("✓ GPU initialized");
         
         // Create logic engine for uniform buffer calculations
         let logic = LogicEngine::new();
         
         // Create windows on all monitors
+        eprintln!("Creating windows...");
         let mut wins = init_windows(&gpu, &inst, class_name, hi.into(), is_wp, &flow);
+        eprintln!("✓ Created {} monitor windows", wins.len());
 
         let has_sequence = !flow.config.sequence.is_empty();
+        eprintln!("Has sequence: {}", has_sequence);
 
         if has_sequence {
             // === V2: SEQUENCE MODE ===

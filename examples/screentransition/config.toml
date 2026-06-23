@@ -1,14 +1,14 @@
 volume = 0.6
 
 [logic]
-detach_speed = 1.5
-move_distance = 0.3
-rotation_speed = 0.5
-perspective = 0.3
+p1 = 1.5  # detach_speed
+p2 = 0.3  # move_distance
+p3 = 0.5  # rotation_speed
+p4 = 0.3  # perspective
 
 [features]
-enable_3d = true
-enable_sound = true
+f1 = true  # enable_3d
+f2 = true  # enable_sound
 
 [[sequence]]
 name = "capture"
