@@ -27,16 +27,60 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 }
 
 @fragment
-fn fs_intro(in: VertexOutput) -> @location(0) vec4<f32> {
-    let progress = clamp(1.0 - u.time * 0.8, 0.0, 1.0);
-    let alpha = progress;
+fn fs_capture(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.uv;
     let col = textureSample(tex0, samp0, uv);
-    return vec4<f32>(col.rgb * progress, alpha);
+    let flash = 1.0 - u.time * 2.0;
+    return vec4<f32>(col.rgb + vec3<f32>(flash), 1.0);
 }
 
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_detach(in: VertexOutput) -> @location(0) vec4<f32> {
+    let uv = in.uv;
+    let progress = clamp(u.time * u.logic_params[0], 0.0, 1.0);
+    let angle = progress * 0.3;
+    let lift = progress * 0.1;
+    
+    var offset = vec2<f32>(0.0, lift);
+    let rotated_uv = uv + offset;
+    
+    let col = textureSample(tex0, samp0, clamp(rotated_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
+    let alpha = 1.0 - progress * 0.3;
+    return vec4<f32>(col.rgb, alpha);
+}
+
+@fragment
+fn fs_move(in: VertexOutput) -> @location(0) vec4<f32> {
+    let uv = in.uv;
+    let progress = clamp(u.time * 0.5, 0.0, 1.0);
+    let move_x = u.logic_params[1] * progress;
+    let perspective = u.logic_params[3];
+    
+    var warped_uv = uv;
+    warped_uv.x = warped_uv.x - move_x;
+    let scale = 1.0 - progress * perspective * 0.3;
+    warped_uv = (warped_uv - 0.5) * scale + 0.5;
+    
+    let col = textureSample(tex0, samp0, clamp(warped_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
+    let shadow = 1.0 - progress * 0.2;
+    return vec4<f32>(col.rgb * shadow, 1.0);
+}
+
+@fragment
+fn fs_land(in: VertexOutput) -> @location(0) vec4<f32> {
+    let uv = in.uv;
+    let progress = clamp(u.time * u.logic_params[0], 0.0, 1.0);
+    let settle = 1.0 - progress;
+    
+    var offset = vec2<f32>(0.0, settle * 0.05);
+    let settled_uv = uv + offset;
+    
+    let col = textureSample(tex0, samp0, clamp(settled_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
+    return vec4<f32>(col.rgb, 1.0);
+}
+
+@fragment
+fn fs_stable(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.uv;
     let col = textureSample(tex0, samp0, uv);
     return vec4<f32>(col.rgb, 1.0);
