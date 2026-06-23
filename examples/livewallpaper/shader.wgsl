@@ -27,12 +27,25 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 }
 
 @fragment
-fn fs_default(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_live_wallpaper(in: VertexOutput) -> @location(0) vec4<f32> {
     var uv = in.uv;
-    if (u.feature_flags[0] > 0.5) {
-        uv += u.offset * 0.05;
+    let mouse = u.mouse;
+    let time = u.time;
+    let speed = u.logic_params[0];
+    let amplitude = u.logic_params[1];
+    let frequency = u.logic_params[2];
+    let brightness = u.logic_params[3];
+    let mouse_influence = u.feature_flags[0];
+    
+    let dist = distance(uv, mouse);
+    let wave = sin(dist * frequency - time * speed) * amplitude;
+    
+    var warped_uv = uv;
+    if (mouse_influence > 0.5) {
+        let direction = normalize(uv - mouse);
+        warped_uv = uv + direction * wave * 0.1;
     }
-    let wave = sin(uv.y * u.logic_params[2] + u.time * u.logic_params[0]) * u.logic_params[1];
-    let color = textureSample(t, s, vec2<f32>(uv.x + wave, uv.y));
-    return color * u.logic_params[3];
+    
+    let color = textureSample(t, s, clamp(warped_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
+    return vec4<f32>(color.rgb * brightness, 1.0);
 }

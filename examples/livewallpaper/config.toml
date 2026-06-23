@@ -1,12 +1,13 @@
 [logic]
-p1 = 0.5
-p2 = 0.02
-p3 = 8.0
-p4 = 1.0
+speed = 0.5
+amplitude = 0.02
+frequency = 8.0
+brightness = 1.0
+mouse_influence = 1.0
 
 [features]
-f1 = true
-f2 = false
+mouse_warp = true
+background_blend = false
 
 mode = "wallpaper"
-shader = "fs_default"
+shader = "fs_live_wallpaper"
