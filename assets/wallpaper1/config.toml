@@ -1,0 +1,15 @@
+[logic]
+pulse_ms = 0.0
+woosh_ms = 0.0
+volume = 0.0
+p1 = 0.5
+p2 = 0.02
+p3 = 8.0
+p4 = 1.0
+
+[features]
+f1 = true
+f2 = false
+
+mode = "wallpaper"
+shader = "fs_default"

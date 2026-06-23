@@ -1,0 +1,101 @@
+[version]
+version = 1
+description = "Industrial-grade coding standards for ScreenAnimation project"
+
+[general]
+# Code style preferences
+indent_style = 4
+indent_type = spaces
+max_line_length = 120
+trailing_newline = true
+final_newline = true
+
+# Documentation requirements
+require_doc_comments = true
+require_safety_comments = true
+require_architecture_docs = true
+
+# Error handling
+require_result_types = true
+require_context_messages = true
+max_nesting_depth = 4
+
+[rust]
+# Naming conventions
+module_names = "snake_case"
+struct_names = "PascalCase"
+function_names = "snake_case"
+constant_names = "SCREAMING_SNAKE_CASE"
+static_names = "SCREAMING_SNAKE_CASE"
+
+# Code organization
+max_functions_per_module = 20
+max_lines_per_function = 50
+require_module_level_docs = true
+
+# Safety
+require_unsafe_documentation = true
+require_safety_explanations = true
+prefer_safe_abstractions = true
+
+# Error handling patterns
+prefer_anyhow_context = true
+require_error_messages = true
+max_error_chain_depth = 3
+
+[comments]
+# Documentation requirements
+require_module_docs = true
+require_function_docs = true
+require_struct_docs = true
+require_field_docs = true
+
+# Comment quality
+min_comment_length = 10
+require_examples = true
+require_safety_notes_for_unsafe = true
+
+[architecture]
+# Design patterns
+require_separation_of_concerns = true
+prefer_composition_over_inheritance = true
+require_single_responsibility = true
+
+# Module organization
+require_clear_module_boundaries = true
+prefer_small_modules = true
+max_module_dependencies = 5
+
+[testing]
+require_unit_tests = true
+require_integration_tests = true
+require_documentation_tests = true
+test_coverage_target = 80
+
+[security]
+require_input_validation = true
+require_error_handling = true
+prohibit_unwrap_in_production = true
+require_secure_coding_practices = true
+
+[performance]
+require_performance_comments = true
+require_memory_safety_notes = true
+prefer_zero_cost_abstractions = true
+require_allocation_documentation = true
+
+[documentation]
+# README requirements
+require_readme = true
+require_build_instructions = true
+require_usage_examples = true
+
+# API documentation
+require_public_api_docs = true
+require_code_examples = true
+require_architecture_diagrams = true
+
+# Format
+prefer_markdown = true
+require_code_highlighting = true
+max_line_length_docs = 100
