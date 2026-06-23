@@ -49,21 +49,20 @@ duration_ms = 0            # 0 = loop forever
 shader_entry = "fs_main"
 sound = "ambient.wav"
 
-# === Logic Parameters (V1 custom shader, V2 via uniforms) ===
-# These are passed as vec4f to shaders
+# === Logic Parameters (passed as vec4f to shaders) ===
+# Use descriptive names - they are mapped by position
+# p1=params[0], p2=params[1], p3=params[2], p4=params[3]
 
-[p1] = 1.0
-[p2] = 0.0
-[p3] = 0.5
-[p4] = 2.0
+speed = 1.0
+amplitude = 0.0
+frequency = 0.5
+brightness = 2.0
 
-# === Feature Flags (boolean-like, passed as vec4f) ===
-# Interpreted as 1.0 (true) or 0.0 (false) in shaders
+# === Feature Flags (boolean-like, passed as 0.0/1.0 to shaders) ===
+# f1=flags[0], f2=flags[1], f3=flags[2], f4=flags[3]
 
-[f1] = true
-[f2] = false
-[f3] = true
-[f4] = false
+enable_effect = true
+secondary_feature = false
 
 # === Audio Settings ===
 volume = 0.5              # Master volume (0.0 to 1.0)
@@ -104,14 +103,17 @@ screenshot_capture = false  # Allow Windows capture API
 
 **Access in shader:**
 ```wgsl
-// p1-p4
-logic_params[0]  // p1
-logic_params[1]  // p2
-logic_params[2]  // p3
-logic_params[3]  // p4
+// Logic parameters (from [logic] section, by position)
+logic_params[0]  // first parameter (e.g., speed)
+logic_params[1]  // second parameter (e.g., amplitude)
+logic_params[2]  // third parameter (e.g., frequency)
+logic_params[3]  // fourth parameter (e.g., brightness)
 
-// f1-f4
-feature_flags[0] > 0.0 ? (1.0) : (0.0)  // f1
+// Feature flags (from [features] section, as 0.0 or 1.0)
+feature_flags[0]  // first feature (e.g., enable_effect)
+feature_flags[1]  // second feature
+feature_flags[2]  // third feature
+feature_flags[3]  // fourth feature
 ```
 
 ## WGSL Shader Specification

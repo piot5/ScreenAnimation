@@ -31,21 +31,46 @@ fn fs_live_wallpaper(in: VertexOutput) -> @location(0) vec4<f32> {
     var uv = in.uv;
     let mouse = u.mouse;
     let time = u.time;
-    let speed = u.logic_params[0];
-    let amplitude = u.logic_params[1];
-    let frequency = u.logic_params[2];
-    let brightness = u.logic_params[3];
-    let mouse_influence = u.feature_flags[0];
     
+    // Parameters from config.toml logic section (p1-p4)
+    let wave_speed = u.logic_params[0];      // p1: wave animation speed
+    let wave_amplitude = u.logic_params[1];  // p2: wave distortion strength
+    let wave_frequency = u.logic_params[2];  // p3: wave density
+    let brightness = u.logic_params[3];      // p4: brightness multiplier
+    
+    // Feature flags from config.toml features section (f1-f4)
+    let enable_wave = u.feature_flags[0];        // f1: enable wave effect
+    let enable_mouse_warp = u.feature_flags[1];  // f2: enable mouse-reactive warping
+    let show_vignette = u.feature_flags[2];      // f3: show vignette effect
+    
+    // Calculate distance from mouse for radial distortion
     let dist = distance(uv, mouse);
-    let wave = sin(dist * frequency - time * speed) * amplitude;
     
-    var warped_uv = uv;
-    if (mouse_influence > 0.5) {
-        let direction = normalize(uv - mouse);
-        warped_uv = uv + direction * wave * 0.1;
+    // Create wave effect based on distance and time
+    var wave = 0.0;
+    if (enable_wave > 0.5) {
+        wave = sin(dist * wave_frequency - time * wave_speed) * wave_amplitude;
     }
     
+    // Apply mouse-reactive deformation
+    var warped_uv = uv;
+    if (enable_mouse_warp > 0.5) {
+        let direction = normalize(uv - mouse);
+        let strength = smoothstep(0.5, 0.0, dist) * 0.15;
+        warped_uv = uv + direction * wave * strength;
+    } else {
+        warped_uv = uv + vec2<f32>(wave * 0.05);
+    }
+    
+    // Sample the deformed coordinates
     let color = textureSample(t, s, clamp(warped_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
-    return vec4<f32>(color.rgb * brightness, 1.0);
+    
+    // Apply vignette effect
+    let vignette = if (show_vignette > 0.5) {
+        1.0 - smoothstep(0.3, 1.2, dist) * 0.3
+    } else {
+        1.0
+    };
+    
+    return vec4<f32>(color.rgb * brightness * vignette, 1.0);
 }
