@@ -1,0 +1,5 @@
+pulse_duration_ms = 800
+woosh_duration_ms = 1000
+sound_volume = 0.6
+sound1_name = "pulse.wav"
+sound2_name = "switch.wav"

@@ -1,0 +1,13 @@
+volume = 0.6
+
+[[sequence]]
+name = "intro"
+duration_ms = 1500
+shader_entry = "fs_intro"
+sound = "woosh.wav"
+
+[[sequence]]
+name = "main_loop"
+duration_ms = 0
+shader_entry = "fs_main"
+sound = "pulse.wav"
