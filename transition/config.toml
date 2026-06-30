@@ -1,0 +1,36 @@
+mode = "sequence"
+
+[logic]
+speed = 1.0
+amplitude = 0.5
+frequency = 2.0
+
+[features]
+enable_transition = true
+
+[[sequence]]
+name = "pulse"
+duration_ms = 320
+shader_entry = "fs_pulse"
+
+  [[sequence.media]]
+  at_ms = 0
+  sound = "pulse.wav"
+
+[[sequence]]
+name = "woosh"
+duration_ms = 900
+shader_entry = "fs_woosh"
+
+  [[sequence.media]]
+  at_ms = 0
+  sound = "woosh.wav"
+
+  [[sequence.media]]
+  at_ms = 450
+  texture = "mid_flash.png"
+
+[[sequence]]
+name = "stable"
+duration_ms = 0
+shader_entry = "fs_default"

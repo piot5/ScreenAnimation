@@ -1,0 +1,12 @@
+mode = "wallpaper"
+shader = "fs_default"
+
+[logic]
+p1 = 0.5
+p2 = 0.02
+p3 = 8.0
+p4 = 1.0
+
+[features]
+f1 = true
+f2 = false

@@ -1,471 +1,301 @@
-# Building ScreenAnimation
+# Building Guide
 
 ## Prerequisites
 
-### Required Software
+- **Rust** 1.70+ (install via [rustup](https://rustup.rs/))
+- **Windows 10/11** (required for Windows API integration)
+- **Git** (optional, for cloning)
 
-- **Rust Toolchain**: 1.70+ (stable channel)
-  ```bash
-  rustup update stable
-  rustc --version  # Should show 1.70.0 or higher
-  ```
-
-- **Visual Studio Build Tools**: 2019 or 2022
-  - C++ Build Tools workload
-  - Windows 10/11 SDK
-  - MSVC compiler (x64)
-
-- **Git** (for cloning repository)
-
-### GPU Driver Requirements
-
-- **NVIDIA**: GeForce GTX 900+ or Quadro K2200+
-- **AMD**: Radeon RX 400+ or Radeon Pro WX 7100+
-- **Intel**: Arc Graphics (Gen 11+) or UHD 770+
-- **Vulkan Support**: Required for WGPU fallback
-
-## Quick Start
+## Quick Build
 
 ```bash
 # Clone repository
-git clone <repository-url>
-cd Build_ScreenAnimation
+git clone https://github.com/piot5/ScreenAnimation.git
+cd ScreenAnimation
 
-# Build debug version
-cargo build
+# Build release binaries
+cargo build --release
+```
 
-# Run tests
+## Build Outputs
+
+```
+target/release/
+├── animationengine.exe    # Main animation engine
+└── builder.exe            # Package builder tool
+```
+
+## Project Structure
+
+```
+ScreenAnimation/
+├── Cargo.toml              # Package manifest
+├── src/
+│   ├── lib.rs             # Library root, module exports
+│   ├── engine.rs          # WGPU core (device, pipelines)
+│   ├── loader.rs          # .flow package loader
+│   ├── logic.rs           # Uniform buffer calculations
+│   ├── windows.rs         # Windows API integration
+│   ├── background.rs      # Image loading/GPU upload
+│   ├── screenshot.rs      # Desktop capture
+│   ├── soundgenerator.rs  # Audio synthesis
+│   └── bin/
+│       ├── animationengine.rs  # Main executable
+│       └── builder.rs          # Package builder
+├── tests/
+│   ├── flow_loading.rs    # Integration tests
+│   └── logic_tests.rs     # Unit tests
+└── examples/              # Example .flow packages
+```
+
+## Building Documentation
+
+```bash
+# Generate and open documentation
+cargo doc --open
+
+# Generate with private items included
+cargo doc --document-private-items --open
+```
+
+## Code Quality Checks
+
+```bash
+# Format code according to rustfmt.toml
+cargo fmt
+
+# Check formatting without modifying
+cargo fmt -- --check
+
+# Run Clippy linter
+cargo clippy
+
+# Run Clippy with stricter checks
+cargo clippy -- -D warnings -W clippy::pedantic
+```
+
+## Testing
+
+```bash
+# Run all tests
 cargo test
 
-# Build release (optimized)
-cargo build --release
+# Run with output
+cargo test -- --nocapture
+
+# Run specific test
+cargo test test_logic_engine_creation
+
+# Run tests with all features
+cargo test --all-features
 ```
 
-## Build Modes
+## Creating Example Packages
 
-### Debug Build
+### 1. Create directory structure
 
 ```bash
-cargo build
+mkdir my_animation
+cd my_animation
 ```
 
-**Characteristics**:
-- No optimizations
-- Full debug symbols
-- Assertions enabled
-- Slower execution (~30 FPS cap due to debug overhead)
-- Fast compilation
+### 2. Add required files
 
-**Use for**: Development, debugging, testing
-
-### Release Build
-
-```bash
-cargo build --release
-```
-
-**Optimizations** (from `Cargo.toml`):
+Create `config.toml`:
 ```toml
-[profile.release]
-opt-level = "z"        # Optimize for size
-lto = true             # Link-time optimization
-codegen-units = 1      # Maximum optimization
-panic = "abort"        # No unwinding
-strip = true           # Remove symbols
+mode = "animation"
+shader = "fs_default"
+
+[p1]
+p2 = 0.0
+p3 = 0.0
+p4 = 0.0
+
+enable_effect = true
 ```
 
-**Characteristics**:
-- Maximally optimized binary size
-- No debug symbols
-- ~60 FPS target performance
-- Smaller executable (~2-3 MB)
-- Slower compilation (2-3× longer)
+Create `shader.wgsl`:
+```wgsl
+struct Uniforms {
+    mouse: vec2f,
+    offset: vec2f,
+    scale: f32,
+    time: f32,
+    logic_params: vec4f,
+    feature_flags: vec4f
+};
 
-**Use for**: Deployment, distribution
+@group(1) @binding(0) var<uniform> u: Uniforms;
 
-## Platform-Specific Instructions
+@vertex
+fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
+    var pos = array<vec2f, 6>(
+        vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+        vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
+    );
+    return vec4f(pos[vi], 0.0, 1.0);
+}
 
-### Windows x64 (MSVC)
-
-This is the primary target platform.
-
-```powershell
-# Install Visual Studio Build Tools
-# Download from: https://visualstudio.microsoft.com/downloads/
-# Select: "Desktop development with C++"
-
-# Verify MSVC compiler
-cl.exe  # Should open Visual Studio command prompt
-
-# Set up Rust for MSVC
-rustup default stable-x86_64-pc-windows-msvc
-
-# Build
-cargo build --release
-```
-
-### Windows x64 (GNU)
-
-Alternative toolchain using MinGW:
-
-```powershell
-# Install MinGW-w64
-# Download from: https://www.mingw-w64.org/
-
-# Set up Rust for GNU
-rustup default stable-x86_64-pc-windows-gnu
-
-# Configure linker (in config.toml or .cargo/config.toml)
-[target.x86_64-pc-windows-gnu]
-linker = "x86_64-w64-mingw32-gcc"
-
-# Build
-cargo build --release
-```
-
-### Windows ARM64
-
-Experimental support:
-
-```powershell
-# Requires Visual Studio 2022 with ARM64 tools
-rustup default stable-aarch64-pc-windows-msvc
-
-# Build
-cargo build --release
-```
-
-## Troubleshooting Build Errors
-
-### Error: `link.exe not found`
-
-**Cause**: Visual Studio C++ tools not installed or not in PATH.
-
-**Solution**:
-```powershell
-# Open "Developer Command Prompt for VS"
-# Or run:
-& "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
-cargo build
-```
-
-### Error: `Windows SDK version not found`
-
-**Cause**: Missing Windows 10/11 SDK.
-
-**Solution**:
-```powershell
-# Install via Visual Studio Installer:
-# Individual components → Windows 10/11 SDK
-```
-
-### Error: `wgpu build fails`
-
-**Cause**: Missing Vulkan/DX12 headers or incompatible GPU.
-
-**Solution**:
-```bash
-# Update GPU drivers
-# For NVIDIA: https://www.nvidia.com/drivers
-# For AMD: https://www.amd.com/drivers
-
-# Try forcing Vulkan backend:
-cargo build --features wgpu/vulkan
-```
-
-### Error: `DllMain` or `GetModuleHandleW` linkage errors
-
-**Cause**: Windows crate features missing in `Cargo.toml`.
-
-**Solution**: Ensure `Cargo.toml` contains:
-```toml
-windows = {
-    version = "0.54",
-    features = [
-        "Win32_Graphics_Gdi",
-        "Win32_UI_WindowsAndMessaging",
-        "Win32_System_LibraryLoader",
-        "Win32_UI_HiDpi"
-    ]
+@fragment
+fn fs_default(@builtin(position) coord: vec4f) -> @location(0) vec4f {
+    let uv = coord.xy / vec2f(textureDimensions(tex0));
+    let bg = textureSample(tex0, samp0, uv);
+    return vec4f(bg.rgb, 1.0);
 }
 ```
 
-### Warning: `LNK4098` (Library mismatch)
-
-**Cause**: Mixing debug/release CRTs.
-
-**Solution**:
-```powershell
-# Clean build artifacts
-cargo clean
-
-# Rebuild with consistent flags
-cargo build --release
-```
-
-## Dependencies
-
-### Crate Versions (from `Cargo.toml`)
-
-| Crate | Version | Purpose |
-|-------|---------|---------|
-| `wgpu` | 0.19 | GPU API abstraction layer |
-| `windows` | 0.54 | Win32 API bindings |
-| `rodio` | 0.17 | Audio playback |
-| `clap` | 4.4 | Command-line argument parsing |
-| `serde` | 1.0 | Serialization/deserialization |
-| `toml` | 0.8 | TOML config parsing |
-| `zip` | 0.6 | .flow package reading |
-| `image` | 0.24 | Image decoding/resizing |
-| `bytemuck` | 1.14 | Safe byte casting for GPU buffers |
-| `pollster` | 0.3 | Async runtime (block_on) |
-| `raw-window-handle` | 0.6 | Window handle abstraction |
-
-### Upgrading Dependencies
+### 3. Build package
 
 ```bash
-# Check for updates
-cargo outdated
+# Using builder.exe
+target\release\builder.exe --input my_animation --output my_animation.flow
 
-# Update all to latest compatible versions
-cargo update
-
-# Update specific crate
-cargo update -p wgpu
+# Or using PowerShell
+Compress-Archive -Path config.toml, shader.wgsl -DestinationPath my_animation.flow -CompressionLevel None
 ```
 
-## Feature Flags
+### 4. Run animation
 
-Currently no custom feature flags. Future plans:
-
-- `debug`: Verbose logging, WGPU debug layers
-- `no-audio`: Disable rodio for silent operation
-- `validation`: Extra GPU validation layers
-
-## Cross-Compilation
-
-### Linux → Windows (not recommended)
-
-WGPU requires native Windows APIs, so cross-compilation is not feasible.
-
-### Windows → Linux (not supported)
-
-Heavy Windows API usage (HWND, WorkerW, BitBlt) makes this impossible.
-
-## Continuous Integration
-
-### GitHub Actions (Example)
-
-```yaml
-# .github/workflows/build.yml
-name: Build
-
-on: [push, pull_request]
-
-jobs:
-  build:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - run: cargo build --release
-      - run: cargo test
-```
-
-## Packaging for Distribution
-
-### Create Portable Binary
-
-```powershell
-# Build release
-cargo build --release
-
-# Copy binary
-Copy-Item target\release\animationengine.exe dist\
-
-# Include example packages
-Copy-Item assets\animation1.flow dist\
-Copy-Item assets\wallpaper1.flow dist\
-
-# Create ZIP
-Compress-Archive -Path dist\* -DestinationPath ScreenAnimation-v0.1.0-windows-x64.zip
-```
-
-### Installer (Inno Setup)
-
-Create `installer.iss`:
-```iss
-[Setup]
-AppName=ScreenAnimation
-AppVersion=0.1.0
-DefaultDirName={pf}\ScreenAnimation
-OutputDir=installer
-
-[Files]
-Source: "dist\animationengine.exe"; DestDir: "{app}"
-Source: "dist\*.flow"; DestDir: "{app}\examples"
-
-[Icons]
-Name: "{group}\ScreenAnimation"; Filename: "{app}\animationengine.exe"
-```
-
-Build with:
 ```bash
-iscc installer.iss
+# Overlay mode
+target\release\animationengine.exe Animation my_animation.flow
+
+# Wallpaper mode
+target\release\animationengine.exe Wallpaper my_animation.flow
 ```
 
 ## Development Workflow
 
-### Test Loop
+### 1. Make changes to source code
+
+Edit files in `src/`
+
+### 2. Format and lint
 
 ```bash
-# 1. Build and run
-cargo run -- Animation assets\animation1\animation1.flow
-
-# 2. In separate terminal, monitor logs
-# (Add logging in future versions)
-
-# 3. Kill process (Ctrl+C)
-# 4. Edit source
-# 5. Repeat
+cargo fmt
+cargo clippy --fix
 ```
 
-### Hot Reload (Manual)
+### 3. Run tests
 
-Since WGPU shaders are strings, you can implement runtime reloading:
-
-```rust
-// In main loop:
-if std::fs::metadata("shader.wgsl").unwrap().modified()
-    != last_modified
-{
-    let new_src = std::fs::read_to_string("shader.wgsl")?;
-    // Recompile pipelines...
-}
+```bash
+cargo test
 ```
 
-### Debug Logging
+### 4. Build and test manually
 
-Add to `src/lib.rs`:
-```rust
-#[cfg(debug_assertions)]
-macro_rules! log {
-    ($($arg:tt)*) => {
-        eprintln!("[DEBUG] {}", format!($($arg)*));
-    };
-}
+```bash
+cargo build
+cargo run -- Animation examples\livewallpaper.flow
+```
 
-#[cfg(not(debug_assertions))]
-macro_rules! log {
-    ($($arg:tt)*) => {};
-}
+### 5. Build release
+
+```bash
+cargo build --release
+```
+
+## Troubleshooting
+
+### Linker errors on Windows
+
+Ensure you have the Visual Studio C++ Build Tools installed:
+```bash
+rustup default stable-x86_64-pc-windows-msvc
+```
+
+### WGPU adapter not found
+
+- Update graphics drivers (Vulkan, DX12, or Metal)
+- Check `wgpu` backend support: ` cargo run --features=wgpu/trace`
+
+### Shader compilation fails
+
+- Validate WGSL syntax: Use `naga` or online validator
+- Check entry point names match config.toml
+- Verify bind group layout matches shader
+
+### Audio not playing
+
+- Check default audio device is available
+- Verify WAV format: PCM, 16-bit, 44100Hz
+- Test with `rodio` example: `cargo test soundgenerator_tests`
+
+## Advanced Builds
+
+### Debug build with logging
+
+```bash
+cargo build
+set RUST_LOG=debug
+cargo run -- Animation my_animation.flow
+```
+
+### Profile-guided optimization
+
+```bash
+cargo build --profile release-with-debug
+```
+
+### Cross-compilation (Linux → Windows)
+
+```bash
+# Install mingw target
+rustup target add x86_64-pc-windows-gnu
+
+# Build
+cargo build --target x86_64-pc-windows-gnu --release
+```
+
+## CI/CD
+
+The project includes GitHub Actions workflow (`.github/workflows/ci.yml`):
+
+- **Code Quality**: Format check, Clippy, trailing whitespace
+- **Build & Test**: Windows build, test, release artifacts
+- **Documentation**: Doc build verification
+- **Security**: `cargo audit` for dependency vulnerabilities
+
+### Running CI locally
+
+```bash
+# Install act (GitHub Actions local runner)
+brew install act  # macOS
+# or download from https://github.com/nektos/act
+
+# Run workflow
+act -j build-test
 ```
 
 ## Performance Profiling
 
-### CPU Profiling (Windows Performance Analyzer)
-
-```powershell
-# Record trace
-wpr -start GPUScreenAnimation -onoff -record
-animationengine.exe Animation test.flow
-wpr -stop trace.etl
-
-# Analyze with WPA
-wpa.exe trace.etl
-```
-
-### GPU Profiling (NVIDIA Nsight)
+### CPU Profiling (Windows)
 
 ```bash
-# Launch with Nsight Graphics
-NvidiaProfileGui.exe --launch animationengine.exe
+# Build with debug symbols
+cargo build --profile release-with-debug
+
+# Run with Windows Performance Recorder
+wpr -start CPU -record
+target\release\animationengine.exe Animation my_animation.flow
+wpr -stop profile.etl
 ```
 
-### Memory Profiling (Valgrind equivalent)
+### GPU Profiling
 
-```powershell
-# Windows Performance Recorder
-wpr -start Heap -heap -record
-animationengine.exe Animation test.flow
-wpr -stop heap.etl
-```
+- Use **RenderDoc** or **Nsight Graphics** to capture frames
+- Check pipeline bottlenecks, draw calls, GPU time
 
 ## Release Checklist
 
-Before tagging a release:
+Before creating a release:
 
-- [ ] Build passes in release mode: `cargo build --release`
-- [ ] All tests pass: `cargo test --release`
-- [ ] Binary runs without panics on test packages
-- [ ] README.md updated with version number
-- [ ] CHANGELOG.md updated
+- [ ] All tests pass: `cargo test`
+- [ ] No Clippy warnings: `cargo clippy -- -D warnings`
+- [ ] Formatted: `cargo fmt -- --check`
+- [ ] Documentation builds: `cargo doc --no-deps`
+- [ ] Security audit: `cargo audit` (install via `cargo install cargo-audit`)
 - [ ] Version bumped in `Cargo.toml`
-- [ ] Create git tag: `git tag v0.2.0`
-- [ ] Build distribution ZIP
-- [ ] Test installer on clean Windows machine
-- [ ] Update website/documentation
-
-## Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `WGPU_DEBUG=1` | Enable WGPU debug layers |
-| `WGPU_BACKEND=vulkan` | Force Vulkan backend |
-| `WGPU_BACKEND=dx12` | Force DirectX 12 backend |
-| `WGPU_BACKEND=gl` | Force OpenGL backend |
-| `RUST_BACKTRACE=1` | Full stack traces on panic |
-
-Example:
-```bash
-set WGPU_DEBUG=1
-animationengine.exe Animation test.flow
-```
-
-## Common Build Configurations
-
-### Minimum Size Build
-
-```toml
-# Cargo.toml
-[profile.release]
-opt-level = "z"
-lto = "fat"
-codegen-units = 1
-panic = "abort"
-strip = true
-```
-
-Result: ~2 MB binary
-
-### Maximum Performance Build
-
-```toml
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-panic = "abort"
-```
-
-Result: ~4 MB binary, fastest execution
-
-### Fast Compilation Build
-
-```toml
-[profile.dev]
-opt-level = 0
-debug = "line-tables-only"
-split-debuginfo = "unpacked"
-```
-
-Result: Fast compilation, reasonable debug experience
-
-## Notes
-
-- **No macOS/Linux Support**: Windows-only due to platform-specific APIs
-- **No Static Linking**: WGPU requires dynamic system libraries
-- **UWP Not Supported**: Requires Win32 desktop API
-- **Safe Rust**: No `unsafe` in application code except FFI boundaries
+- [ ] `CHANGELOG.md` updated
+- [ ] Binaries tested on clean Windows machine

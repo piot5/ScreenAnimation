@@ -1,0 +1,28 @@
+mode = "sequence"
+
+[logic]
+p1 = 8.0   # segments: Anzahl Kaleidoskop-Segmente
+p2 = 1.0   # rotation_speed: Rotationsgeschwindigkeit
+p3 = 0.6   # blend: Effekt-Intensitaet
+p4 = 1.1   # brightness: Helligkeit
+
+[features]
+f1 = true  # enable_kaleidoscope
+f2 = false
+f3 = false
+f4 = false
+
+[[sequence]]
+name = "intro"
+duration_ms = 1200
+shader_entry = "fs_intro"
+
+[[sequence]]
+name = "spin"
+duration_ms = 3000
+shader_entry = "fs_spin"
+
+[[sequence]]
+name = "stable"
+duration_ms = 0
+shader_entry = "fs_default"

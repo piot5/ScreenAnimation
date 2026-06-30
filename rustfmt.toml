@@ -1,0 +1,22 @@
+# Rust code formatting configuration for ScreenAnimation
+# Follows .clinerules standards
+
+# Indentation
+hard_tabs = false
+tab_spaces = 4
+
+# Line length
+max_width = 120
+
+# Imports
+reorder_imports = true
+reorder_modules = true
+
+# Other
+newline_style = "Auto"
+fn_call_width = 120
+array_width = 60
+chain_width = 100
+
+# Edition
+edition = "2021"

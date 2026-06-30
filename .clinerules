@@ -1,6 +1,6 @@
 [version]
 version = 1
-description = "Industrial-grade coding standards for ScreenAnimation project"
+description = "Industrial-grade coding standards for ScreenAnimation"
 
 [general]
 # Code style preferences

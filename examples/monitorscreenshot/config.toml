@@ -1,0 +1,17 @@
+mode = "animation"
+shader = "fs_flyin"
+
+[logic]
+p1 = 0  # direction: 0=from right, 1=from left, 2=from top, 3=from bottom
+p2 = 1.0  # speed multiplier (0.5=slow, 1.0=normal, 2.0=fast)
+p3 = 0.03  # motion blur intensity (0.0=off, 0.05=high)
+p4 = 0.0
+
+[features]
+f1 = true  # enable_motion_blur
+f2 = true  # enable_glow_effect
+
+[[sequence]]
+name = "flyin"
+duration_ms = 1000
+shader_entry = "fs_flyin"

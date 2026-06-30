@@ -26,15 +26,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let file = File::create(output_path)?;
     let mut zip = zip::ZipWriter::new(file);
-    let options = FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated)
-        .unix_permissions(0o755);
+    let options = FileOptions::default().compression_method(zip::CompressionMethod::Deflated).unix_permissions(0o755);
 
     println!("Packe Flow-Paket: {} -> {}", args.input, args.output);
+
+    // Resolve the output file's canonical path to exclude it from the archive
+    let output_canonical = output_path.canonicalize().unwrap_or_else(|_| output_path.to_path_buf());
 
     for entry in WalkDir::new(input_path).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
         let name = path.strip_prefix(input_path)?;
+
+        // Skip the output .flow file itself if it's inside the input directory
+        if path.is_file() {
+            if let Ok(canonical) = path.canonicalize() {
+                if canonical == output_canonical {
+                    println!("  (skipping output file: {})", name.display());
+                    continue;
+                }
+            }
+        }
 
         if path.is_file() {
             println!("  + {}", name.display());

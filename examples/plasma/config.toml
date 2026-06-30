@@ -1,0 +1,14 @@
+mode = "animation"
+shader = "fs_plasma"
+
+[logic]
+p1 = 1.5   # wave_speed: Geschwindigkeit des Plasma-Effekts
+p2 = 2.0   # wave_frequency: Dichte der Wellen
+p3 = 0.8   # color_shift: Intensitaet der Farbverschiebung
+p4 = 1.2   # brightness: Helligkeit
+
+[features]
+f1 = true  # enable_plasma: Plasma-Effekt aktiv
+f2 = false # disable
+f3 = false # disable
+f4 = false # disable

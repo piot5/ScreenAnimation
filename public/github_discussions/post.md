@@ -156,4 +156,4 @@ Let me know your thoughts!
 - What would you improve in this architecture?
 - Have you used WGPU in production? Any lessons learned?
 - Best practices for shader authoring and debugging?
-- Ideas for the .flow format evolution?
+- Ideas for the .flow format evolution? go to binary would be something i guess

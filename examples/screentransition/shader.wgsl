@@ -85,3 +85,10 @@ fn fs_stable(in: VertexOutput) -> @location(0) vec4<f32> {
     let col = textureSample(tex0, samp0, uv);
     return vec4<f32>(col.rgb, 1.0);
 }
+
+@fragment
+fn fs_default(in: VertexOutput) -> @location(0) vec4<f32> {
+    let uv = in.uv;
+    let col = textureSample(tex0, samp0, uv);
+    return vec4<f32>(col.rgb, 1.0);
+}

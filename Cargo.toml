@@ -1,7 +1,11 @@
 [package]
 name = "screen_animation"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+authors = ["ScreenAnimation Contributors"]
+license = "MIT"
+repository = "https://github.com/piot5/ScreenAnimation"
+description = "GPU-accelerated screen animations and wallpaper engine using WGPU and DXGI"
 
 [dependencies]
 anyhow = "1.0"
@@ -13,10 +17,31 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 zip = "0.6"
 rodio = { version = "0.17", features = ["wav"] }
+cpal = "0.15"
 raw-window-handle = "0.6"
 image = "0.24"
 walkdir = "2.5"
-windows = { version = "0.54", features = ["Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_UI_HiDpi"] }
+windows = { version = "0.54", features = [
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D12",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
+    "Win32_System_Com",
+    "Win32_UI_HiDpi",
+    "Win32_Foundation",
+] }
+crc32fast = "1.3"
+confy = "0.6"
+directories = "5.0"
+
+[dev-dependencies]
+criterion = "0.5"
+miniz_oxide = "0.7"
 
 [profile.release]
 opt-level = "z"
