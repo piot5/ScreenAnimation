@@ -16,7 +16,7 @@
 //! `LogicEngine` is intentionally stateless except for `start_time`.
 //! This makes it easy to test and reason about - given the same inputs,
 //! it always produces the same outputs.
-
+//!
 use crate::engine::Uniforms;
 use crate::loader::FlowPackage;
 use std::time::Instant;
@@ -159,12 +159,12 @@ impl LogicEngine {
             // User-defined logic parameters from [p1], [p2], [p3], [p4] in config.toml
             // These are exposed to shaders as vec4<f32> for customization
             // Examples: animation speed, color intensity, effect strength
-            // Performance: Uses cached values (no HashMap lookup)
+            // Performance: Uses cached values (no HashMap lookups)
             logic_params: self.cached_logic_params,
             // Feature flags from [f1], [f2], [f3], [f4] in config.toml
             // Converted from bool to f32 (1.0 = true, 0.0 = false)
             // Used in shaders to enable/disable effects conditionally
-            // Performance: Uses cached values (no HashMap lookup)
+            // Performance: Uses cached values (no HashMap lookups)
             feature_flags: self.cached_feature_flags,
         }
     }
