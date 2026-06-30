@@ -1,6 +1,8 @@
-volume = 0.6
+mode = "animation"
+shader = "fs_stable"
 
 [logic]
+volume = 0.6
 p1 = 1.5  # detach_speed
 p2 = 0.3  # move_distance
 p3 = 0.5  # rotation_speed
@@ -14,25 +16,37 @@ f2 = true  # enable_sound
 name = "capture"
 duration_ms = 500
 shader_entry = "fs_capture"
-sound = "woosh.wav"
+
+  [[sequence.media]]
+  at_ms = 0
+  sound = "woosh.wav"
 
 [[sequence]]
 name = "detach"
 duration_ms = 1500
 shader_entry = "fs_detach"
-sound = "woosh.wav"
+
+  [[sequence.media]]
+  at_ms = 0
+  sound = "woosh.wav"
 
 [[sequence]]
 name = "move"
 duration_ms = 2000
 shader_entry = "fs_move"
-sound = "pulse.wav"
+
+  [[sequence.media]]
+  at_ms = 0
+  sound = "pulse.wav"
 
 [[sequence]]
 name = "land"
 duration_ms = 1000
 shader_entry = "fs_land"
-sound = "pulse.wav"
+
+  [[sequence.media]]
+  at_ms = 0
+  sound = "pulse.wav"
 
 [[sequence]]
 name = "stable"

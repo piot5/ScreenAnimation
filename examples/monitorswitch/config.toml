@@ -1,0 +1,30 @@
+mode = "animation"
+shader = "fs_woosh"
+
+[logic]
+p1 = 0.15  # woosh_offset: horizontal shift (0.0-1.0)
+p2 = 0.05  # pulse_intensity: scale amount
+p3 = 0.0
+p4 = 0.0
+
+[features]
+f1 = true  # enable_pulse_effect
+f2 = false
+
+[[sequence]]
+name = "pulse"
+duration_ms = 320
+shader_entry = "fs_pulse"
+
+  [[sequence.media]]
+  at_ms = 0
+  sound = "pulse.wav"
+
+[[sequence]]
+name = "woosh"
+duration_ms = 900
+shader_entry = "fs_woosh"
+
+  [[sequence.media]]
+  at_ms = 0
+  sound = "woosh.wav"

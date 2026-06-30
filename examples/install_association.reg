@@ -1,0 +1,14 @@
+Windows Registry Editor Version 5.00
+
+; Associate .flow files with ScreenAnimation
+[HKEY_CLASSES_ROOT\.flow]
+@="ScreenAnimation.Flow"
+
+[HKEY_CLASSES_ROOT\ScreenAnimation.Flow]
+@="ScreenAnimation Flow Package"
+
+[HKEY_CLASSES_ROOT\ScreenAnimation.Flow\DefaultIcon]
+@="C:\\Software\\Build_ScreenAnimation\\target\\release\\animationengine.exe,0"
+
+[HKEY_CLASSES_ROOT\ScreenAnimation.Flow\shell\open\command]
+@="\"C:\\Software\\Build_ScreenAnimation\\target\\release\\animationengine.exe\" animation \"%1\""

@@ -2,13 +2,13 @@
 //!
 //! This module handles native Windows API integration for window management,
 //! desktop embedding, and screen capture. It's responsible for creating
-//! animation windows on each monitor and configuring GPU surfaces.
+//! animation windows on each monitor and configuring WGPU surfaces.
 //!
 //! # Key Responsibilities
 //!
 //! - Create windows for each monitor (overlay or wallpaper mode)
 //! - Embed content behind desktop icons (WorkerW trick)
-//! - Capture desktop background for wallpaper mode
+//! - Capture desktop background for wallpaper mode using DXGI
 //! - Configure WGPU surfaces from native HWNDs
 //!
 //! # Safety
@@ -20,12 +20,14 @@
 //!
 //! All unsafe functions are documented with safety invariants.
 
+use crate::background::{create_background_texture, load_background, upload_background};
 use crate::engine::{GpuCore, WindowWrapper};
 use crate::loader::FlowPackage;
+use anyhow::Context;
+use windows::core::w;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::w;
 
 /// Represents a fullscreen animation window on one monitor.
 ///
@@ -63,10 +65,7 @@ pub struct MonitorWindow {
 }
 
 impl MonitorWindow {
-    /// V1-style: creates window with background image/capture.
-    ///
-    /// This constructor creates a monitor window with a pre-rendered background.
-    /// The background is uploaded to a GPU texture and bound for rendering.
+    /// Create a new monitor window with background texture.
     ///
     /// # Arguments
     ///
@@ -80,16 +79,9 @@ impl MonitorWindow {
     ///
     /// # Safety
     ///
-    /// - `hwnd` must be a valid window created by `CreateWindowExW`
+    /// - `hwnd` must be a valid window created by CreateWindowExW
     /// - `bg_buf` must contain valid BGRA pixel data (w × h × 4 bytes)
     /// - Caller must ensure window message pump is running
-    ///
-    /// # Performance
-    ///
-    /// - Texture creation: ~5ms
-    /// - Texture upload: ~10ms (w × h × 4 bytes)
-    /// - Surface creation: ~20ms
-    /// - Total: ~35ms per monitor
     pub unsafe fn new_v1(
         gpu: &GpuCore,
         inst: &wgpu::Instance,
@@ -98,51 +90,19 @@ impl MonitorWindow {
         h: u32,
         bg_buf: &[u8],
         rect: RECT,
-    ) -> Self {
-        // Create GPU texture for background image
-        // Format: BGRA8UnormSrgb (matches Windows DIB format)
-        let bg_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: wgpu::Extent3d {
-                width: w,
-                height: h,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Bgra8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        
-        // Upload background image data to GPU texture
-        // Layout: tightly packed BGRA rows (w * 4 bytes per row)
-        gpu.queue.write_texture(
-            wgpu::ImageCopyTexture {
-                texture: &bg_tex,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            bg_buf,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: Some(w * 4),
-                rows_per_image: None,
-            },
-            bg_tex.size(),
-        );
+    ) -> anyhow::Result<Self> {
+        // Create GPU texture for background image using dedicated module
+        let (bg_tex, bg_view) = create_background_texture(gpu, w, h);
 
-        // Create texture view (required for binding)
-        let bg_view = bg_tex.create_view(&wgpu::TextureViewDescriptor::default());
-        
+        // Upload background image data to GPU texture using dedicated module
+        upload_background(gpu, &bg_tex, bg_buf, w, h);
+
         // Create bind group for background texture + sampler
         // Uses all 4 bindings to support both desktop and custom textures
         // Bindings 0-1: Background texture + sampler
         // Bindings 2-3: Duplicate of background (allows shader to use tex1)
         let t_bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
+            label: Some("Background texture bind group"),
             layout: &gpu.bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -165,9 +125,9 @@ impl MonitorWindow {
         });
 
         // Create uniform buffer for per-frame data
-        // Size: 64 bytes (matches Uniforms struct)
+        // Size is determined by the Rust struct (now 64 bytes with padding)
         let u_buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
+            label: Some("Uniform buffer"),
             size: std::mem::size_of::<crate::engine::Uniforms>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -175,7 +135,7 @@ impl MonitorWindow {
 
         // Create bind group for uniform buffer
         let u_bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
+            label: Some("Uniform bind group"),
             layout: &gpu.uniform_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -185,7 +145,15 @@ impl MonitorWindow {
 
         // Create WGPU surface from native HWND
         // WindowWrapper implements the required traits for surface creation
-        let surface = inst.create_surface(WindowWrapper(hwnd)).unwrap();
+        // wgpu 0.24: Instance::create_surface takes impl Into<SurfaceTarget<'a>>
+        let surface = inst
+            .create_surface(WindowWrapper(hwnd))
+            .context("Failed to create WGPU surface for monitor window")?;
+
+        // wgpu 0.24: Use get_capabilities instead of the removed get_supported_formats
+        // Get surface capabilities from the adapter (not instance)
+        // Note: we don't have the adapter here, so we use the standard configuration
+        // that matches our pipeline format
         surface.configure(
             &gpu.device,
             &wgpu::SurfaceConfiguration {
@@ -194,13 +162,13 @@ impl MonitorWindow {
                 width: w,
                 height: h,
                 present_mode: wgpu::PresentMode::Fifo,
-                alpha_mode: wgpu::CompositeAlphaMode::Auto,
+                alpha_mode: wgpu::CompositeAlphaMode::PreMultiplied,
                 view_formats: vec![],
                 desired_maximum_frame_latency: 2,
             },
         );
 
-        Self {
+        Ok(Self {
             hwnd,
             surface,
             texture_bind_group: t_bg,
@@ -210,7 +178,22 @@ impl MonitorWindow {
             rect,
             // Pre-allocate buffer for desktop capture (4 bytes per pixel: BGRA)
             buffer: vec![0u8; (w * h * 4) as usize],
-        }
+        })
+    }
+
+    /// Clean up MonitorWindow resources.
+    ///
+    /// This destroys the native window and releases GPU resources.
+    /// Note: WGPU resources are managed by the device and will be cleaned up automatically.
+    ///
+    /// # Safety
+    ///
+    /// - Must not be called while the window is still being used by the render loop
+    /// - After this call, the MonitorWindow must not be used again
+    pub unsafe fn destroy(&self) {
+        // Destroy the native window
+        // SAFETY: hwnd is a valid window handle created by CreateWindowExW
+        let _ = DestroyWindow(self.hwnd);
     }
 }
 
@@ -265,35 +248,30 @@ pub unsafe fn init_windows(
 ) -> Vec<MonitorWindow> {
     // Collect monitor rectangles via Windows API callback
     let mut rects: Vec<RECT> = Vec::new();
-    
+
     // Callback function for EnumDisplayMonitors
     // Receives monitor RECT via LPARAM (pointer to our Vec<RECT>)
-    unsafe extern "system" fn monitor_enum(
-        _: HMONITOR,
-        _: HDC,
-        r: *mut RECT,
-        d: LPARAM,
-    ) -> BOOL {
+    unsafe extern "system" fn monitor_enum(_: HMONITOR, _: HDC, r: *mut RECT, d: LPARAM) -> BOOL {
         let rects = &mut *(d.0 as *mut Vec<RECT>);
         rects.push(*r);
-        true.into()  // Continue enumeration
+        true.into() // Continue enumeration
     }
 
     // Enumerate all display monitors
     let _ = EnumDisplayMonitors(
-        HDC(0),           // All monitors
-        None,             // No clipping region
-        Some(monitor_enum),  // Callback function
-        LPARAM(&mut rects as *mut _ as isize),  // User data (pointer to rects)
+        HDC(0),                                // All monitors
+        None,                                  // No clipping region
+        Some(monitor_enum),                    // Callback function
+        LPARAM(&mut rects as *mut _ as isize), // User data (pointer to rects)
     );
 
     // For wallpaper mode: find WorkerW window behind desktop icons
     let workerw = if is_wp {
         GpuCore::fetch_worker_w()
     } else {
-        HWND(0)  // Not used in overlay mode
+        HWND(0) // Not used in overlay mode
     };
-    
+
     // Create a window for each monitor
     let mut windows = Vec::new();
 
@@ -301,40 +279,49 @@ pub unsafe fn init_windows(
         // Calculate window dimensions from monitor RECT
         let (w, h) = ((r.right - r.left) as u32, (r.bottom - r.top) as u32);
 
+        // CAPTURE DESKTOP FIRST (before creating the overlay window).
+        // If we create the window first, the capture will get the transparent
+        // overlay (which is black) instead of the actual desktop content.
+        let buf = capture_or_load(flow, w, h, &r);
+
         // Create native window with appropriate styles
         let hwnd = CreateWindowExW(
             // Extended window styles
             if is_wp {
-                WINDOW_EX_STYLE(0)  // No extended styles for wallpaper
+                WINDOW_EX_STYLE(0) // No extended styles for wallpaper
             } else {
                 WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_TRANSPARENT
             },
-            class,       // Window class name
-            w!(""),      // No window title
+            class,  // Window class name
+            w!(""), // No window title
             // Window styles
             if is_wp {
-                WS_CHILD | WS_VISIBLE  // Child of WorkerW
+                WS_CHILD | WS_VISIBLE // Child of WorkerW
             } else {
-                WS_POPUP | WS_VISIBLE  // Borderless overlay
+                WS_POPUP | WS_VISIBLE // Borderless overlay
             },
             // Position and size
-            if is_wp { 0 } else { r.left },  // X position
-            if is_wp { 0 } else { r.top },   // Y position
-            w as i32,   // Width
-            h as i32,   // Height
+            if is_wp { 0 } else { r.left }, // X position
+            if is_wp { 0 } else { r.top },  // Y position
+            w as i32,                       // Width
+            h as i32,                       // Height
             // Parent window (WorkerW for wallpaper, none for overlay)
             if is_wp { workerw } else { HWND(0) },
-            None,       // No menu
-            hi,         // Instance handle
-            None,       // No creation data
+            None, // No menu
+            hi,   // Instance handle
+            None, // No creation data
         );
 
-        // Load background image or capture desktop
-        let buf = capture_or_load(flow, w, h, &r);
-        
         // Create MonitorWindow with all GPU resources
-        let mw = MonitorWindow::new_v1(gpu, inst, hwnd, w, h, &buf, r);
-        windows.push(mw);
+        match MonitorWindow::new_v1(gpu, inst, hwnd, w, h, &buf, r) {
+            Ok(mw) => windows.push(mw),
+            Err(e) => {
+                eprintln!("Monitor window failed: {}", e);
+                if is_wp {
+                    let _ = DestroyWindow(hwnd);
+                }
+            }
+        }
     }
 
     windows
@@ -345,86 +332,34 @@ pub unsafe fn init_windows(
 /// This function provides the background texture for each monitor window.
 /// It either:
 /// 1. Loads `background.png` from the .flow package and resizes to monitor resolution
-/// 2. Falls back to capturing the current desktop via BitBlt
+/// 2. Falls back to capturing the current desktop via DXGI (or BitBlt as fallback)
 ///
 /// # Arguments
 ///
 /// * `f` - Loaded flow package (may contain background.png)
 /// * `w` - Target width (monitor width)
 /// * `h` - Target height (monitor height)
-/// * `r` - Monitor rectangle (for BitBlt coordinates)
+/// * `r` - Monitor rectangle (for BitBlt/DXGI coordinates)
 ///
 /// # Returns
 ///
 /// BGRA pixel data (w × h × 4 bytes) suitable for GPU texture upload.
 ///
-/// # Safety
-///
-/// - Must be called from main thread with GDI initialized
-/// - `r` must be a valid monitor RECT from EnumDisplayMonitors
-///
 /// # Performance
 ///
 /// - Image load + resize: ~10ms
-/// - BitBlt capture: ~5ms
+/// - DXGI capture: ~0.5-1ms (when available)
+/// - BitBlt fallback: ~5-7ms
 unsafe fn capture_or_load(f: &FlowPackage, w: u32, h: u32, r: &RECT) -> Vec<u8> {
-    // Try to load background image from flow package
+    // Try to load background image from flow package using dedicated module
     if let Some(ref d) = f.image_data {
-        if let Ok(img) = image::load_from_memory(d) {
-            // Resize to monitor resolution using triangle filter (bilinear)
-            let rgba = img
-                .resize_exact(w, h, image::imageops::FilterType::Triangle)
-                .to_rgba8();
-            // Convert RGBA to BGRA (Windows DIB format)
-            // Swizzle: R↔B, keep G and A
-            return rgba
-                .chunks_exact(4)
-                .flat_map(|s| [s[2], s[1], s[0], s[3]])
-                .collect();
+        if let Some(bgra) = load_background(d, w, h) {
+            return bgra;
         }
     }
-    
-    // Fallback: Capture current desktop using BitBlt
-    let s_dc = GetDC(None);  // Get screen DC
-    let m_dc = CreateCompatibleDC(s_dc);  // Create compatible memory DC
-    let bm = CreateCompatibleBitmap(s_dc, w as i32, h as i32);  // Create bitmap
-    SelectObject(m_dc, bm);  // Select bitmap into DC
-    
-    // Copy screen to bitmap (source: screen DC, dest: memory DC)
-    // SRCCOPY = direct copy, no blending
-    let _ = BitBlt(m_dc, 0, 0, w as i32, h as i32, s_dc, r.left, r.top, SRCCOPY);
-    
-    // Describe the bitmap format for GetDIBits
-    let mut bmi = BITMAPINFO {
-        bmiHeader: BITMAPINFOHEADER {
-            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: w as i32,
-            biHeight: -(h as i32),  // Negative = top-down DIB (origin at top-left)
-            biPlanes: 1,
-            biBitCount: 32,  // 32 bits per pixel (BGRA)
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    
-    // Allocate buffer for pixel data
-    let mut b = vec![0u8; (w * h * 4) as usize];
-    
-    // Convert bitmap to raw BGRA pixels
-    GetDIBits(
-        m_dc,      // Source DC
-        bm,        // Bitmap handle
-        0,         // Start scan line
-        h,         // Number of scan lines
-        Some(b.as_mut_ptr() as *mut _),  // Destination buffer
-        &mut bmi,  // Bitmap format info
-        DIB_RGB_COLORS,  // Color usage
-    );
-    
-    // Cleanup GDI resources (critical to prevent leaks)
-    DeleteObject(bm);     // Delete bitmap
-    DeleteDC(m_dc);       // Delete memory DC
-    ReleaseDC(None, s_dc);  // Release screen DC
-    
-    b
+
+    // Fallback: Capture current desktop using the screenshot module
+    // The screenshot module automatically tries DXGI first, then BitBlt
+    // SAFETY: capture_or_fallback handles DXGI initialization internally
+    crate::screenshot::capture_or_fallback(w, h, Some(r))
 }

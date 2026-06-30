@@ -1,444 +1,212 @@
-# ScreenAnimation Architecture
+# Architecture Overview
 
-## Overview
+## System Design
 
-ScreenAnimation is a GPU-accelerated screen animation and wallpaper engine for Windows. It leverages WGPU for hardware-accelerated rendering with native Windows API integration for window management and desktop embedding.
+ScreenAnimation is a GPU-accelerated animation engine for Windows that renders real-time animations using WGPU and WGSL shaders. The system is designed around a multi-monitor, multi-layer architecture.
 
-## Design Philosophy
-
-1. **Performance First**: Direct GPU access via WGPU, minimal overhead
-2. **Modular Design**: Clear separation between rendering, logic, and system integration
-3. **Cross-Monitor Support**: Automatic multi-monitor window creation
-4. **Flexibility**: Two operation modes (V1 simple, V2 sequence-based)
-5. **Extensibility**: Plugin-like .flow packages with shaders and assets
-
-## System Architecture
+## Core Components
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      animationengine.exe                     │
-│                     (Binary Crate)                          │
+│                     Main Process                             │
 ├─────────────────────────────────────────────────────────────┤
-│  CLI Parser (clap)                                          │
-│  ├── Animation <path>                                       │
-│  └── Wallpaper <path>                                       │
+│  animationengine.exe                                        │
+│  ├── CLI Parser (clap)                                      │
+│  ├── Package Loader (ZIP extraction)                        │
+│  ├── Audio Engine (rodio)                                   │
+│  ├── GPU Core (WGPU device + pipelines)                     │
+│  ├── Windows Integration (HWND + message loop)              │
+│  └── Render Loop (V1 or V2)                                │
 └─────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
+                              │
+                              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    screen_animation (Lib)                   │
+│                    screen_animation Crate                   │
 ├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐ │
-│  │    engine     │  │    loader     │  │     logic     │ │
-│  │    (WGPU)     │  │  (.flow ZIP)  │  │   (Uniforms)  │ │
-│  ├───────────────┤  ├───────────────┤  ├───────────────┤ │
-│  │ GpuCore       │  │ FlowPackage   │  │ LogicEngine   │ │
-│  │ Uniforms      │  │  - Config     │  │ - update()    │ │
-│  │ WindowWrapper │  │  - Shader     │  │ - val()       │ │
-│  │               │  │  - Sounds     │  │ - feature()   │ │
-│  │               │  │  - Textures   │  │               │ │
-│  └───────────────┘  └───────────────┘  └───────────────┘ │
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │                    windows                           │   │
-│  │  ┌────────────────┐      ┌──────────────────────┐  │   │
-│  │  │ MonitorWindow   │      │ init_windows()       │  │   │
-│  │  │ - HWND          │      │ - EnumDisplayMonitors │  │   │
-│  │  │ - Surface       │      │ - CreateWindowExW     │  │   │
-│  │  │ - BindGroups    │      │ - fetch_worker_w()    │  │   │
-│  │  │ - UniformBuffer │      │ - capture_or_load()   │  │   │
-│  │  └────────────────┘      └──────────────────────┘  │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    External Dependencies                    │
-├─────────────────────────────────────────────────────────────┤
-│  wgpu (0.19)          - GPU API abstraction                 │
-│  windows (0.54)       - Win32 API bindings                  │
-│  rodio (0.17)         - Audio playback                      │
-│  clap (4.4)           - CLI parsing                         │
-│  serde + toml         - Configuration deserialization       │
-│  zip                  - .flow package reading               │
-│  image                - Texture loading/resizing            │
+│  engine      - WGPU core: device, queue, pipelines          │
+│  loader      - .flow package parsing (ZIP → assets)         │
+│  logic       - Uniform buffer calculation per frame         │
+│  windows     - Window creation + monitor enumeration        │
+│  background  - Image loading, resizing, GPU upload          │
+│  screenshot  - Desktop capture via BitBlt                   │
 └─────────────────────────────────────────────────────────────┘
 ```
-
-## Core Modules
-
-### engine
-
-The heart of the GPU abstraction layer.
-
-**GpuCore** struct:
-- `device`: Logical GPU device (command buffer allocation, resource creation)
-- `queue`: Instruction queue for GPU commands
-- `bind_group_layout`: 4-entry layout for textures and samplers (desktop + custom)
-- `uniform_layout`: Bind group layout for uniform buffers
-- `sampler`: Shared linear sampler for texture sampling
-- `pipelines`: HashMap of shader entry points to render pipelines
-
-**Initialization Flow**:
-1. Request adapter (GPU selection)
-2. Request device and queue
-3. Create shader module from WGSL source
-4. Create bind group layouts (texture+sampler, uniform)
-5. Create pipeline layout combining both layouts
-6. For each shader entry point:
-   - Create render pipeline with vertex/fragment states
-   - Store in `pipelines` HashMap
-
-**Uniforms** struct:
-- 208 bytes total
-- `mouse: [f32; 2]` - Normalized cursor position (0-1)
-- `offset: [f32; 2]` - Translation offset
-- `scale: f32` - Uniform scale
-- `time: f32` - Elapsed seconds
-- `logic_params: [f32; 4]` - User-defined parameters (p1-p4)
-- `feature_flags: [f32; 4]` - Boolean flags (f1-f4)
-
-**WindowWrapper**:
-- Wraps raw HWND
-- Implements `HasWindowHandle` and `HasDisplayHandle` traits
-- Allows wgpu to create surfaces from native Windows handles
-
-### loader
-
-Responsible for reading .flow packages (ZIP archives).
-
-**FlowPackage** struct:
-- `config: Config` - Parsed configuration
-- `sounds: HashMap<String, Arc<Vec<u8>>>` - Shared audio data
-- `image_data: Option<Vec<u8>>` - Wallpaper background
-- `textures: HashMap<String, (u32, u32, Vec<u8>)>` - RGBA textures with dimensions
-- `shader_src: String` - Complete WGSL source
-
-**Loading Process**:
-1. Open ZIP file
-2. Read and parse `config.toml` (with fallback to defaults)
-3. Read `shader.wgsl` as string
-4. Iterate archive entries:
-   - `.wav` → load into `sounds` HashMap (wrapped in Arc)
-   - `background.png` → store in `image_data`
-   - `.png`/`.jpg` → decode with `image` crate, convert to RGBA, store in `textures`
-
-**Key Methods**:
-- `val(key, default)`: Extract float values from config logic section
-- `feature(key)`: Extract boolean features from config
-
-### logic
-
-Frame-by-frame uniform calculation.
-
-**LogicEngine**:
-- `start_time: Instant` - Reference point for time uniform
-
-**Usage**:
-```rust
-let logic = LogicEngine::new();
-loop {
-    let uniforms = logic.update(&flow, mouse_position);
-    gpu.queue.write_buffer(..., bytemuck::bytes_of(&uniforms));
-}
-```
-
-**update() Parameters**:
-- `flow: &FlowPackage` - Access to config values
-- `mouse_rel: [f32; 2]` - Normalized mouse coordinates
-
-Returns fully populated `Uniforms` struct.
-
-### windows
-
-Native Windows API integration for window management.
-
-**MonitorWindow**:
-Contains all per-window GPU resources:
-- `hwnd: HWND` - Native window handle
-- `surface: wgpu::Surface` - Swapchain surface
-- `texture_bind_group` - Background texture + sampler
-- `uniform_buffer` - Dynamic uniform data
-- `uniform_bind_group` - Uniform buffer binding
-- `desktop_tex: wgpu::Texture` - Background texture (V1)
-
-**init_windows() Flow**:
-1. Enumerate all display monitors via `EnumDisplayMonitors`
-2. For wallpaper mode: Find WorkerW window via `fetch_worker_w()`
-3. For each monitor:
-   - Create window with appropriate styles (overlay vs child)
-   - Capture desktop background or load from package
-   - Create GPU texture and upload background
-   - Create surface from window handle
-   - Configure swapchain
-   - Create bind groups for texture and uniforms
-4. Return Vec<MonitorWindow>
-
-**Window Styles**:
-- Animation: `WS_POPUP | WS_VISIBLE | WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT`
-- Wallpaper: `WS_CHILD | WS_VISIBLE` (child of WorkerW)
-
-**Desktop Capture**:
-- If `background.png` exists in package: Resize and use
-- Otherwise: Capture current desktop via BitBlt + GetDIBits
 
 ## Data Flow
 
-### Initialization Sequence
-
-```rust
-// 1. Load package
-let flow = FlowPackage::load("animation.flow")?;
-
-// 2. Initialize audio
-let (_stream, sink) = rodio::OutputStream::try_default()?;
-sink.set_volume(flow.val("volume", 0.5));
-
-// 3. Setup window class
-RegisterClassW(&WNDCLASSW { ... });
-
-// 4. Create GPU instance
-let inst = wgpu::Instance::default();
-
-// 5. Compile shaders and create pipelines
-let gpu = GpuCore::new(&inst, &flow.shader_src, &entries).await?;
-
-// 6. Create windows on all monitors
-let wins = init_windows(&gpu, &inst, class_name, hinstance, is_wallpaper, &flow);
+```
+.flow File (ZIP)
+    ↓
+FlowPackage (config + shader + assets)
+    ↓
+GpuCore (compile shaders, create pipelines)
+    ↓
+MonitorWindows (one per display)
+    ↓ per frame: LogicEngine → Uniforms → GPU
+Render Loop
+    ↓
+Swapchain → Screen
 ```
 
-### V1 Render Loop
+## Rendering Architecture
+
+### Uniform Buffer Layout
+
+The GPU receives per-frame data through a 64-byte uniform buffer:
 
 ```
-Frame Start
-    │
-    ▼
-Poll Window Messages (PeekMessageW)
-    │
-    ▼
-GetCursorPos() ──────────────┐
-    │                       │
-    ▼                       │
-For each window:            │
-    │                       │
-    ▼                       │
-GetWindowRect()             │
-    │                       │
-    ▼                       │
-Calculate relative mouse    │
-position (0-1 range)        │
-    │                       │
-    ▼                       │
-LogicEngine::update()       │
-    │                       │
-    ▼                       │
-write_buffer(Uniforms)      │
-    │                       │
-    ▼                       │
-get_current_texture()       │
-    │                       │
-    ▼                       │
-Create render pass          │
-    │                       │
-    ▼                       │
-Set pipeline, bind groups   │
-    │                       │
-    ▼                       │
-draw(6) // Fullscreen quad   │
-    │                       │
-    ▼                       │
-queue.submit()              │
-    │                       │
-    ▼                       │
-fr.present()                 │
-    │                       │
-    └───────────────────────┘
-    │
-    ▼
-Throttle to 60 FPS
+Offset 0:  mouse (vec2<f32>)           - Normalized cursor position
+Offset 8:  offset (vec2<f32>)          - Translation offset (reserved)
+Offset 16: scale (f32)                  - Uniform scale factor
+Offset 20: time (f32)                   - Elapsed seconds since start
+Offset 24: padding (2 × f32)            - Alignment for vec4
+Offset 32: logic_params (vec4<f32>)     - p1-p4 from config.toml
+Offset 48: feature_flags (vec4<f32>)    - f1-f4 as 0.0/1.0
+Total: 64 bytes
 ```
 
-### V2 Sequence Flow
+### Bind Group Layout
+
+Two bind groups enable flexible shader composition:
+
+**Bind Group 0: Textures & Samplers**
+- Binding 0: Background texture (desktop capture or background.png)
+- Binding 1: Linear sampler for background texture
+- Binding 2: Optional custom texture (from sequence steps)
+- Binding 3: Sampler for custom texture
+
+**Bind Group 1: Uniform Buffer**
+- Binding 0: Per-frame uniform data (mouse, time, params)
+
+## Module Responsibilities
+
+### `engine` (GpuCore)
+- Manages WGPU device and command queue
+- Compiles WGSL shader modules
+- Creates and caches render pipelines
+- Provides bind group layouts
+- One instance shared across all monitor windows
+
+### `loader` (FlowPackage)
+- Opens and validates .flow ZIP archives
+- Parses config.toml into structured Config
+- Extracts and decodes audio files (WAV → Arc<Vec<u8>>)
+- Decodes images (PNG/JPG → RGBA8 + dimensions)
+- Stores WGSL shader source code
+- Security: validates paths, enforces size limits
+
+### `logic` (LogicEngine)
+- Tracks animation start time
+- Calculates elapsed time per frame
+- Reads logic parameters (p1-p4) from config
+- Reads feature flags (f1-f4) from config
+- Produces Uniforms structure for GPU upload
+
+### `windows` (MonitorWindow)
+- Enumerates monitors via EnumDisplayMonitors
+- Implements WorkerW trick for wallpaper embedding
+- Creates native Win32 windows per monitor
+- Configures WGPU surfaces from HWND handles
+- Manages GPU resources per window (textures, buffers, bind groups)
+
+### `background`
+- Decodes background.png from ZIP
+- Resizes to monitor resolution (bilinear filtering)
+- Converts RGBA → BGRA for Windows DIB compatibility
+- Creates and manages GPU textures
+
+### `screenshot`
+- Captures desktop via DXGI Output Duplication (GPU-accelerated, ~0.5-1ms)
+- Falls back to BitBlt (GDI, CPU-bound, ~5-7ms) when DXGI is unavailable
+- Creates D3D11 device + staging texture for GPU → CPU readback
+- Handles frame acquisition with timeout, access lost recovery
+- Supports multi-output enumeration for diagnostics
+- DXGI pipeline: AcquireNextFrame → CopyResource (GPU→staging) → Map → row-pitch-aware readback → Unmap
+
+## Operation Modes
+
+### V1: Simple Mode (Animation/Wallpaper)
+- Loads single shader entry point
+- Continuous rendering loop
+- Mouse position tracked via WndProc → atomics
+- 60 FPS target
+- Transparent overlay (Animation) or embedded (Wallpaper)
+
+### V2: Sequence Mode (Multi-step)
+- Loads multiple shader entry points from sequence array
+- Steps run for configured durations
+- Media events triggered at timestamps
+- Sound playback synchronized to step start
+- Fallback to V1 if sequence array is empty
+
+## Threading Model
 
 ```
-For each step in sequence:
-    │
-    ▼
-Record start_time
-    │
-    ▼
-Play step sound (if any)
-    │
-    ▼
-While elapsed < duration_ms:
-    │
-    ▼
-    [Same as V1 render loop with fixed uniforms]
-    │
-    ▼
-Next step
+Main Thread:
+├── Windows Message Pump (PeekMessage/DispatchMessage)
+├── Audio Playback (rodio, internal thread)
+├── GPU Submission (queue.submit)
+└── Render Loop (frame rate throttled)
+
+No worker threads - everything runs on main thread
+- GPU operations are async but polled via wgpu
+- Audio uses internal ring buffer
+- No locks needed (single-threaded)
 ```
 
-## Memory Model
+## Memory Ownership
 
-**Shared Ownership**:
-- Sound data: `Arc<Vec<u8>>` - Shared between loader and decoder
-- Config: Cloned via `Arc`-like semantics (cheap clones of small structs)
+### GPU Resources (WGPU-managed)
+- Device, Queue: owned by GpuCore
+- Pipelines: cached in HashMap by GpuCore
+- Textures, Buffers, BindGroups: owned by MonitorWindow
+- Samplers: shared via GpuCore (single sampler for all windows)
 
-**GPU Resources**:
-- One `GpuCore` instance shared across all windows
-- Per-window: Surface, texture bind group, uniform buffer, uniform bind group
-- Shared: Device, queue, sampler, pipelines, bind group layouts
-
-**Buffer Updates**:
-- Uniform buffer: 208 bytes per frame per window (via write_buffer)
-- Texture: Uploaded once at initialization
-
-## Graphics Pipeline
-
-```
-Vertex Stage:
-  - No vertex buffers (vertex_index generated)
-  - 6 vertices forming fullscreen quad
-  - Direct position output (-1 to 1)
-
-Fragment Stage:
-  - Bind Group 0: Background texture + sampler
-  - Bind Group 1: Uniform buffer
-  - User shader logic with access to:
-    * textureSample(tex0, samp0, uv)
-    * Uniforms structure
-    
-Output:
-  - BGRA8UnormSrgb format
-  - Alpha blending enabled (for transparency)
-```
-
-## Windows Integration Details
-
-### Window Creation (Animation Mode)
-
-```c
-CreateWindowExW(
-    WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_TRANSPARENT,
-    "WgpuAnim",
-    "",  // No title
-    WS_POPUP | WS_VISIBLE,
-    x, y, width, height,
-    NULL,  // No parent
-    NULL, hInstance, NULL
-);
-```
-
-**Style Flags**:
-- `WS_EX_LAYERED`: Supports per-pixel alpha
-- `WS_EX_TRANSPARENT`: Click-through (mouse events pass to windows below)
-- `WS_EX_TOPMOST`: Stay above normal windows
-- `WS_POPUP`: Borderless window
-
-### Window Creation (Wallpaper Mode)
-
-```c
-WorkerW = FindWorkerW();  // Special desktop window
-
-CreateWindowExW(
-    0,  // No extended styles
-    "WgpuAnim",
-    "",
-    WS_CHILD | WS_VISIBLE,
-    0, 0, width, height,
-    WorkerW,  // Parent is WorkerW
-    NULL, hInstance, NULL
-);
-```
-
-**WorkerW Trick**:
-Windows desktop has a special window hierarchy:
-- `Progman` → `SHELLDLL_DefView` (icons) + `WorkerW` (behind icons)
-- Sending `0x052C` message to Progman creates a second WorkerW
-- Animation becomes child of this WorkerW → appears behind icons
-
-### DPI Awareness
-
-```rust
-SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-```
-
-- Per-monitor DPI awareness (V2 = latest, best scaling)
-- Required for correct rendering on mixed-DPI setups
-- Windows 10 1703+ feature
-
-## Performance Characteristics
-
-**CPU Usage**:
-- Polling loop: ~1% single core
-- Minimal allocations in hot path
-- Lock-free atomics for mouse tracking
-
-**GPU Usage**:
-- Single draw call per frame per monitor (6 vertices)
-- Uniform buffer update: 208 bytes × 60 FPS = ~12 KB/s
-- Texture upload: One-time at startup
-
-**Memory Footprint**:
-- Base: ~50 MB (WGPU + window resources)
-- Per monitor: ~10 MB (surface, textures, buffers)
-- Audio: Shared across instances (Arc)
-
-**Bottlenecks**:
-- Swapchain presentation (vsync-locked)
-- Window message pump
-- Image decoding at load time
-
-## Concurrency Model
-
-- **Main Thread**: All Windows API, GPU device access, rendering
-- **Audio Thread**: Rodio internal thread for sample mixing
-- **No Shared Mutability**: All GPU operations sequential on main thread
-- **Atomic Mouse Tracking**: Lock-free HWND procedure → main loop communication
+### CPU Resources
+- FlowPackage: loaded once at startup, owns all assets
+- Sounds: Arc<Vec<u8>> shared between loader, audio decoder
+- Textures: HashMap<String, (u32, u32, Vec<u8>)> in FlowPackage
+- MonitorWindows: Vec<MonitorWindow>, one per monitor
 
 ## Extension Points
 
-**.flow Packages**:
-- Custom WGSL shaders with user-defined entry points
-- Audio triggers at sequence steps
-- Texture overlays
-- Configurable logic parameters
+### Custom Shaders
+- Entry points: `fs_default`, `fs_intro`, etc.
+- Access uniforms via `@group(1) @binding(0) var<uniform> u: Uniforms;`
+- Sample textures via `@group(0) @binding(0..3)`
 
-**Shader API**:
-- Replaceable fragment shaders
-- Shared vertex shader
-- Access to time, mouse, logic parameters
-- Two texture slots (background + overlay)
+### Sequence Steps
+- Define in config.toml: `[[sequence]]`
+- Each step specifies: duration, shader_entry, media events
+- Steps can loop (duration_ms = 0) or run once
 
-**Future Possibilities**:
-- Video texture support
-- Network asset streaming
-- Hot-reload of shaders
-- Custom logic functions in WGSL
+### Media Events
+- Sound playback: `sound = "fileName.wav"`
+- Texture overlay: `texture = "image.png"` (loaded to tex1)
 
-## Debugging Tips
+## Performance Characteristics
 
-**Enable WGPU Debugging**:
-```rust
-let inst = wgpu::Instance::new(wgpu::InstanceDescriptor {
-    backends: wgpu::Backends::all(),
-    dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
-    // ... more options
-});
-```
+- **Startup**: ~1s (package load + GPU init + shader compilation)
+- **Memory**: ~50MB base + 10-50MB per .flow package
+- **GPU**: ~100 draw calls per frame (one per monitor)
+- **CPU**: <1ms per frame for logic + uniform upload
+- **Frame Time**: <16ms target (60 FPS)
+- **Audio Latency**: <50ms (rodio internal buffering)
 
-**Debug Layers**:
-- Windows: Use Graphics Debugging Tools
-- WGPU: Set `WGPU_DEBUG=1` environment variable
+## Security Architecture
 
-**Common Issues**:
-- Black screen: Check shader compilation errors
-- Crashes: Invalid HWND, surface creation failure
-- No audio: Missing WAV files, rodio initialization failure
-- Wrong DPI: Missing `SetProcessDpiAwarenessContext`
-- Behind icons: WorkerW not found (check desktop state)
+### Input Validation
+- ZIP paths: reject `..` and absolute paths
+- Package size: hard limit 100MB uncompressed
+- Texture size: max 8192×8192 pixels
+- Audio count: max 32 files
 
-Build with `cargo build --features debug` for verbose logging.
+### Resource Limits
+- Maximum texture files: 16
+- Total uncompressed size: 100MB
+- Individual texture: 8192×8192 @ 4 bytes = 256MB
+
+### Isolation
+- Each .flow package runs in same process (no sandbox)
+- WGSL validated by WGPU before execution
+- GDI resources (DCs, bitmaps) cleaned up immediately

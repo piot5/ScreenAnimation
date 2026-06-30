@@ -27,9 +27,37 @@
 //! - Image decoding: ~10ms per texture (PNG/JPG)
 //! - Total load time: ~100-200ms
 
+use anyhow::Context;
+use image::GenericImageView;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, io::Read, sync::Arc};
 use zip::ZipArchive;
+
+/// A media event timed within a sequence step.
+///
+/// Media events allow precise scheduling of sounds and textures
+/// during a step's duration. Multiple events can be defined per step.
+///
+/// # Example
+///
+/// ```toml
+/// [[sequence.media]]
+/// at_ms = 500
+/// sound = "click.wav"
+///
+/// [[sequence.media]]
+/// at_ms = 1500
+/// texture = "flash.png"
+/// ```
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+pub struct MediaEvent {
+    /// Trigger time in milliseconds relative to step start
+    pub at_ms: u64,
+    /// Optional sound file to play at this timestamp (must exist in ZIP)
+    pub sound: Option<String>,
+    /// Optional texture to load at this timestamp (bound to tex1)
+    pub texture: Option<String>,
+}
 
 /// A step in a sequence-based animation (v2 format).
 ///
@@ -43,7 +71,14 @@ use zip::ZipArchive;
 /// name = "intro"
 /// duration_ms = 3000
 /// shader_entry = "fs_intro"
-/// sound = "intro.wav"
+///
+///   [[sequence.media]]
+///   at_ms = 0
+///   sound = "intro.wav"
+///
+///   [[sequence.media]]
+///   at_ms = 1500
+///   texture = "flash.png"
 /// ```
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct Step {
@@ -53,12 +88,11 @@ pub struct Step {
     pub duration_ms: u64,
     /// Fragment shader entry point name (must match a @fragment function in shader.wgsl)
     pub shader_entry: String,
-    /// Optional audio file to play at step start (must exist in ZIP)
-    pub sound: Option<String>,
-    /// Optional texture to load for this step (bound to tex1)
-    pub texture: Option<String>,
     /// Easing function hint (currently unused, reserved for future)
     pub easing: Option<String>,
+    /// Timed media events within this step (sounds and textures)
+    #[serde(default)]
+    pub media: Vec<MediaEvent>,
 }
 
 /// Merged configuration supporting both v1 and v2 formats.
@@ -124,6 +158,12 @@ pub struct FlowPackage {
 }
 
 impl FlowPackage {
+    // Security constants for safe ZIP extraction
+    const MAX_PACKAGE_SIZE: u64 = 100 * 1024 * 1024; // 100MB
+    const MAX_TEXTURE_DIMENSION: u32 = 8192; // 8K max
+    const MAX_AUDIO_FILES: usize = 32;
+    const MAX_TEXTURE_FILES: usize = 16;
+
     /// Load a .flow package from filesystem.
     ///
     /// # Arguments
@@ -141,6 +181,8 @@ impl FlowPackage {
     /// - Missing required files (config.toml, shader.wgsl)
     /// - TOML parse error (falls back to defaults)
     /// - Image decode error (skips invalid images)
+    /// - Package exceeds size limits
+    /// - Path traversal attempt detected
     ///
     /// # Performance
     ///
@@ -152,51 +194,89 @@ impl FlowPackage {
         let file = std::fs::File::open(path)?;
         let mut archive = ZipArchive::new(file)?;
 
+        // Security: Check total uncompressed package size
+        let total_size: u64 = (0..archive.len()).map(|i| archive.by_index(i).map(|f| f.size()).unwrap_or(0)).sum();
+        anyhow::ensure!(
+            total_size <= Self::MAX_PACKAGE_SIZE,
+            "Package size {}MB exceeds limit of {}MB",
+            total_size / (1024 * 1024),
+            Self::MAX_PACKAGE_SIZE / (1024 * 1024)
+        );
+
         // Read and parse config.toml
         let mut config_str = String::new();
-        archive
-            .by_name("config.toml")?
-            .read_to_string(&mut config_str)?;
-        // Use unwrap_or_default to gracefully handle malformed configs
-        let config: Config = toml::from_str(&config_str).unwrap_or_default();
+        archive.by_name("config.toml")?.read_to_string(&mut config_str)?;
+        // Use context to gracefully handle malformed configs with defaults
+        let config: Config = toml::from_str(&config_str).context("Failed to parse config.toml, using defaults")?;
 
         // Read WGSL shader source (required)
         let mut shader_src = String::new();
-        archive
-            .by_name("shader.wgsl")?
-            .read_to_string(&mut shader_src)?;
+        archive.by_name("shader.wgsl")?.read_to_string(&mut shader_src)?;
 
         // Initialize asset containers
         let mut sounds = HashMap::new();
         let mut image_data = None;
         let mut textures = HashMap::new();
 
+        // Security: Count audio and texture files
+        let mut audio_count = 0;
+        let mut texture_count = 0;
+
         // Iterate all files in ZIP
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
             let name = file.name().to_string();
 
+            // Security: Validate path - reject path traversal attempts
+            anyhow::ensure!(
+                !name.contains("..") && !std::path::Path::new(&name).is_absolute(),
+                "Path traversal detected in ZIP entry: {}",
+                name
+            );
+
             // Extract WAV audio files
             if name.ends_with(".wav") {
+                audio_count += 1;
+                anyhow::ensure!(
+                    audio_count <= Self::MAX_AUDIO_FILES,
+                    "Audio file count {} exceeds limit of {}",
+                    audio_count,
+                    Self::MAX_AUDIO_FILES
+                );
                 let mut buffer = Vec::new();
                 file.read_to_end(&mut buffer)?;
                 // Wrap in Arc for zero-copy sharing with audio decoder
                 sounds.insert(name, Arc::new(buffer));
-            } 
+            }
             // Extract wallpaper background
             else if name == "background.png" {
                 let mut buffer = Vec::new();
                 file.read_to_end(&mut buffer)?;
                 image_data = Some(buffer);
-            } 
+            }
             // Extract texture images (PNG/JPG)
             else if name.ends_with(".png") || name.ends_with(".jpg") {
+                texture_count += 1;
+                anyhow::ensure!(
+                    texture_count <= Self::MAX_TEXTURE_FILES,
+                    "Texture file count {} exceeds limit of {}",
+                    texture_count,
+                    Self::MAX_TEXTURE_FILES
+                );
                 let mut buffer = Vec::new();
                 file.read_to_end(&mut buffer)?;
                 // Decode image and convert to RGBA8
                 if let Ok(img) = image::load_from_memory(&buffer) {
+                    let (w, h) = img.dimensions();
+                    // Security: Validate texture dimensions
+                    anyhow::ensure!(
+                        w <= Self::MAX_TEXTURE_DIMENSION && h <= Self::MAX_TEXTURE_DIMENSION,
+                        "Texture {}x{} exceeds max dimension {}",
+                        w,
+                        h,
+                        Self::MAX_TEXTURE_DIMENSION
+                    );
                     let rgba = img.to_rgba8();
-                    let (w, h) = rgba.dimensions();
                     // Store dimensions + raw pixel data
                     textures.insert(name, (w, h, rgba.into_raw()));
                 }
@@ -226,6 +306,7 @@ impl FlowPackage {
     /// # Example
     ///
     /// ```ignore
+    /// # let flow = screen_animation::loader::FlowPackage::load("animation.flow").unwrap();
     /// let speed = flow.val("p1", 1.0);
     /// ```
     pub fn val(&self, key: &str, default: f32) -> f32 {
@@ -245,6 +326,7 @@ impl FlowPackage {
     /// # Example
     ///
     /// ```ignore
+    /// # let flow = screen_animation::loader::FlowPackage::load("animation.flow").unwrap();
     /// if flow.feature("f1") {
     ///     // Enable special effect
     /// }

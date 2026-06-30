@@ -4,7 +4,7 @@ GPU-accelerated screen animations and wallpaper engine for Windows, built with R
 
 ## Features
 
-- **60 FPS** GPU-accelerated rendering
+- **GPU-accelerated** rendering
 - **Multi-monitor** support
 - **Live Wallpaper**: Mouse-reactive desktop background with wave distortion
 - **Screen Transitions**: Capture, detach, move, and land screen content with 3D effects

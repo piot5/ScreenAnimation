@@ -1,0 +1,14 @@
+mode = "animation"
+shader = "fs_wave"
+
+[logic]
+p1 = 2.5   # wave_speed: Geschwindigkeit der Wellen
+p2 = 0.05  # wave_amplitude: Staerke der Verzerrung
+p3 = 8.0   # wave_frequency: Dichte der Wellen
+p4 = 1.3   # brightness: Helligkeit
+
+[features]
+f1 = true  # enable_waves: Welleneffekt aktivieren
+f2 = true  # enable_ripple: Zusaetzlicher Ripple-Effekt
+f3 = false
+f4 = false

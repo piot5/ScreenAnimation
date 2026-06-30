@@ -1,3 +1,6 @@
+mode = "wallpaper"
+shader = "fs_live_wallpaper"
+
 [logic]
 p1 = 0.5   # wave_speed
 p2 = 0.03  # wave_amplitude
@@ -8,6 +11,3 @@ p4 = 1.0   # brightness
 f1 = true  # enable_wave
 f2 = true  # enable_mouse_warp
 f3 = true  # show_vignette
-
-mode = "wallpaper"
-shader = "fs_live_wallpaper"

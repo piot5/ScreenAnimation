@@ -1,0 +1,42 @@
+mode = "animation"
+shader = "fs_default"
+
+[logic]
+volume = 0.5
+p1 = 0.8  # move_distance: wie weit gleitet der Screen (0.0-1.0, 1.0 = volle Breite)
+p2 = 0.0  # (reserviert)
+p3 = 0.0
+p4 = 0.0
+
+[features]
+f1 = true  # enable_flash
+f2 = true  # enable_shadow
+
+[[sequence]]
+name = "capture"
+duration_ms = 500
+shader_entry = "fs_capture"
+sound = "shutter.wav"
+
+[[sequence]]
+name = "detach"
+duration_ms = 1000
+shader_entry = "fs_detach"
+sound = "ripple.wav"
+
+[[sequence]]
+name = "move"
+duration_ms = 2000
+shader_entry = "fs_move"
+sound = "whoosh.wav"
+
+[[sequence]]
+name = "land"
+duration_ms = 1000
+shader_entry = "fs_land"
+sound = "thud.wav"
+
+[[sequence]]
+name = "stable"
+duration_ms = 0
+shader_entry = "fs_default"

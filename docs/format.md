@@ -386,7 +386,7 @@ The `.flow` format version is implicit. Compatibility is determined by feature u
 ```toml
 mode = "animation"
 shader = "fs_default"
-[p1] = 1.0
+p1 = 1.0
 ```
 
 **New V2 config**:
@@ -398,7 +398,7 @@ name = "default"
 duration_ms = 0
 shader_entry = "fs_default"
 
-[p1] = 1.0
+p1 = 1.0
 ```
 
 ## Debugging Packages
