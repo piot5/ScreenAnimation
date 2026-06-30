@@ -1,0 +1,11 @@
+C:\Software\ScreenAnimationStudio\target\debug\deps\arrayvec-e5eb4bf66ddc4c3d.d: C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\lib.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\arrayvec_impl.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\arrayvec.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\array_string.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\char.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\errors.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\utils.rs
+
+C:\Software\ScreenAnimationStudio\target\debug\deps\libarrayvec-e5eb4bf66ddc4c3d.rmeta: C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\lib.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\arrayvec_impl.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\arrayvec.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\array_string.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\char.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\errors.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\utils.rs
+
+C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\lib.rs:
+C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\arrayvec_impl.rs:
+C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\arrayvec.rs:
+C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\array_string.rs:
+C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\char.rs:
+C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\errors.rs:
+C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\arrayvec-0.7.7\src\utils.rs:

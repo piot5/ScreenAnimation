@@ -1,0 +1,11 @@
+C:\Software\ScreenAnimationStudio\target\debug\deps\egui_glow-23218986874b7420.d: C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\lib.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\painter.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\misc_util.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\shader_version.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\vao.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\shader/vertex.glsl C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\shader/fragment.glsl
+
+C:\Software\ScreenAnimationStudio\target\debug\deps\libegui_glow-23218986874b7420.rmeta: C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\lib.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\painter.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\misc_util.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\shader_version.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\vao.rs C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\shader/vertex.glsl C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\shader/fragment.glsl
+
+C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\lib.rs:
+C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\painter.rs:
+C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\misc_util.rs:
+C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\shader_version.rs:
+C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\vao.rs:
+C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\shader/vertex.glsl:
+C:\Users\piotv\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui_glow-0.26.2\src\shader/fragment.glsl:
