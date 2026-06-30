@@ -484,15 +484,27 @@ pub unsafe fn capture_or_fallback(width: u32, height: u32, monitor_rect: Option<
 pub unsafe fn capture_desktop_fallback(width: u32, height: u32, rect: &RECT) -> Vec<u8> {
     // Get device context for the entire screen
     let screen_dc = GetDC(None);
+    if screen_dc.is_invalid() {
+        return vec![0u8; (width * height * 4) as usize];
+    }
 
     // Create a memory device context compatible with the screen
     let mem_dc = CreateCompatibleDC(screen_dc);
+    if mem_dc.is_invalid() {
+        let _ = ReleaseDC(None, screen_dc);
+        return vec![0u8; (width * height * 4) as usize];
+    }
 
     // Create a bitmap compatible with the screen DC
     let bitmap = CreateCompatibleBitmap(screen_dc, width as i32, height as i32);
+    if bitmap.is_invalid() {
+        let _ = DeleteDC(mem_dc);
+        let _ = ReleaseDC(None, screen_dc);
+        return vec![0u8; (width * height * 4) as usize];
+    }
 
     // Select the bitmap into the memory DC
-    SelectObject(mem_dc, bitmap);
+    let _ = SelectObject(mem_dc, bitmap);
 
     // Copy the screen region to our memory DC
     let _ = BitBlt(mem_dc, 0, 0, width as i32, height as i32, screen_dc, rect.left, rect.top, SRCCOPY);
@@ -519,7 +531,7 @@ pub unsafe fn capture_desktop_fallback(width: u32, height: u32, rect: &RECT) -> 
     let mut pixel_data = vec![0u8; (width * height * 4) as usize];
 
     // Convert the bitmap to raw BGRA pixel data
-    GetDIBits(mem_dc, bitmap, 0, height, Some(pixel_data.as_mut_ptr() as *mut _), &mut bmi, DIB_RGB_COLORS);
+    let _ = GetDIBits(mem_dc, bitmap, 0, height, Some(pixel_data.as_mut_ptr() as *mut _), &mut bmi, DIB_RGB_COLORS);
 
     // Cleanup GDI resources
     let _ = DeleteObject(bitmap);
