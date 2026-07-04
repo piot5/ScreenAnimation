@@ -11,6 +11,19 @@
 //! - Capture desktop background for wallpaper mode using DXGI
 //! - Configure WGPU surfaces from native HWNDs
 //!
+//! # Windows Compatibility
+//!
+//! - Windows 10 1809+: Full DXGI support, WorkerW wallpaper embedding
+//! - Windows 11: Full support with improved DPI handling
+//! - Windows 7/8: Limited support (BitBlt fallback for capture)
+//! - RDP sessions: Falls back to BitBlt (DXGI unavailable)
+//!
+//! # DPI Awareness
+//!
+//! This module assumes the application is DPI-aware. For Windows 10+, call
+//! `SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)`
+//! at startup for correct scaling on high-DPI displays.
+//!
 //! # Safety
 //!
 //! This module makes extensive use of `unsafe` because:
@@ -110,7 +123,7 @@ impl MonitorWindow {
         let (bg_tex, bg_view) = create_background_texture(gpu, w, h);
 
         // Upload background image data to GPU texture using dedicated module
-        upload_background(gpu, &bg_tex, bg_buf, w, h);
+        let _ = upload_background(gpu, &bg_tex, bg_buf, w, h);
 
         // Create bind group for background texture + sampler
         // Uses all 4 bindings to support both desktop and custom textures
@@ -238,6 +251,62 @@ impl Drop for MonitorWindow {
     }
 }
 
+/// Register the window class for monitor windows.
+///
+/// This must be called once before `init_windows` to register the window class
+/// that will be used for all monitor windows.
+///
+/// # Arguments
+///
+/// * `hi` - Instance handle from `GetModuleHandleW`
+///
+/// # Returns
+///
+/// `Ok(())` if registration succeeded, or an error with the Windows error code.
+pub unsafe fn register_window_class(hi: HINSTANCE) -> anyhow::Result<()> {
+    let wc = WNDCLASSEXW {
+        cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+        style: CS_HREDRAW | CS_VREDRAW,
+        lpfnWndProc: Some(wnd_proc),
+        cbClsExtra: 0,
+        cbWndExtra: 0,
+        hInstance: hi,
+        hIcon: HICON(0),
+        hCursor: HCURSOR(0),
+        hbrBackground: HBRUSH(0),
+        lpszMenuName: windows::core::PCWSTR::null(),
+        lpszClassName: w!("WgpuAnim"),
+        hIconSm: HICON(0),
+    };
+    
+    let atom = RegisterClassExW(&wc);
+    if atom == 0 {
+        return Err(anyhow::anyhow!("RegisterClassExW failed"));
+    }
+    eprintln!("[windows] Window class 'WgpuAnim' registered");
+    Ok(())
+}
+
+/// Window procedure for monitor windows.
+///
+/// Handles basic window messages. For overlay mode, we don't need much interaction.
+/// For wallpaper mode, the window is a child of WorkerW and just needs to display.
+unsafe extern "system" fn wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    match msg {
+        WM_DESTROY => {
+            // Post quit message when window is destroyed
+            let _ = PostQuitMessage(0);
+            LRESULT(0)
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
 /// Create animation/wallpaper windows across all monitors.
 ///
 /// This is the main entry point for window creation. It:
@@ -250,7 +319,6 @@ impl Drop for MonitorWindow {
 ///
 /// * `gpu` - Initialized GPU core
 /// * `inst` - WGPU instance
-/// * `class` - Window class name (registered with `RegisterClassW`)
 /// * `hi` - Instance handle from `GetModuleHandleW`
 /// * `is_wp` - True for wallpaper mode, false for overlay animation
 /// * `flow` - Loaded animation package (for background image)
@@ -263,7 +331,6 @@ impl Drop for MonitorWindow {
 /// # Safety
 ///
 /// - Must be called from the main thread with a Windows message pump
-/// - `class` must be a valid registered window class
 /// - `hi` must be a valid HINSTANCE
 /// - For wallpaper mode: requires desktop icons to be visible
 ///
@@ -282,11 +349,13 @@ impl Drop for MonitorWindow {
 pub unsafe fn init_windows(
     gpu: &GpuCore,
     inst: &wgpu::Instance,
-    class: windows::core::PCWSTR,
     hi: HINSTANCE,
     is_wp: bool,
     flow: &FlowPackage,
 ) -> Vec<MonitorWindow> {
+    // Register window class first (must be done before CreateWindowExW)
+    let _ = register_window_class(hi);
+    
     // Collect monitor rectangles via Windows API callback
     let mut rects: Vec<RECT> = Vec::new();
 
@@ -343,7 +412,7 @@ pub unsafe fn init_windows(
             } else {
                 WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_TRANSPARENT
             },
-            class,  // Window class name
+            w!("WgpuAnim"),  // Window class name
             w!(""), // No window title
             // Window styles
             if is_wp {
@@ -408,7 +477,7 @@ pub unsafe fn init_windows(
 unsafe fn capture_or_load(f: &FlowPackage, w: u32, h: u32, r: &RECT) -> Vec<u8> {
     // Try to load background image from flow package using dedicated module
     if let Some(ref d) = f.image_data {
-        if let Some(bgra) = load_background(d, w, h) {
+        if let Ok(Some(bgra)) = load_background(d, w, h) {
             return bgra;
         }
     }

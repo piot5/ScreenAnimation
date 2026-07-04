@@ -47,6 +47,7 @@
 //! On any other error, falls back to BitBlt.
 
 use std::sync::Mutex;
+use anyhow::Context;
 use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Direct3D::*;
@@ -60,6 +61,11 @@ use windows::Win32::System::Com::*;
 ///
 /// Uses `Mutex` (not `OnceLock`) because `DXGI_ERROR_ACCESS_LOST` requires
 /// reinitialization of the duplication interface at runtime.
+///
+/// # Safety
+///
+/// This static is only accessed from functions that require COM initialization.
+/// All public functions in this module document the COM requirement.
 static DXGI_STATE: Mutex<Option<DxgiCaptureState>> = Mutex::new(None);
 
 /// Combined DXGI + D3D11 state for desktop duplication with GPU readback.
@@ -98,12 +104,17 @@ struct DxgiCaptureState {
 ///
 /// # Arguments
 ///
-/// * `width` - Desired capture width (staging texture dimension)
-/// * `height` - Desired capture height (staging texture dimension)
+/// * `width` - Desired capture width (staging texture dimension, must be > 0)
+/// * `height` - Desired capture height (staging texture dimension, must be > 0)
+///
+/// # Returns
+///
+/// A fully initialized `DxgiCaptureState` ready for frame capture.
 ///
 /// # Errors
 ///
 /// Returns an error if:
+/// - `width` or `height` is 0
 /// - DXGI 1.2+ is not available (no `DuplicateOutput`)
 /// - D3D11 device creation fails
 /// - Staging texture creation fails
@@ -113,7 +124,11 @@ struct DxgiCaptureState {
 ///
 /// - COM must be initialized on the calling thread (`CoInitializeEx`)
 /// - Must not be called concurrently with itself for different dimensions
-unsafe fn init_dxgi_capture(width: u32, height: u32) -> Result<DxgiCaptureState> {
+unsafe fn init_dxgi_capture(width: u32, height: u32) -> anyhow::Result<DxgiCaptureState> {
+    // Validate dimensions
+    if width == 0 || height == 0 {
+        return Err(anyhow::anyhow!("Capture dimensions must be > 0"));
+    }
     // Step 1: Create DXGI factory
     let factory: IDXGIFactory1 = CreateDXGIFactory1()?;
 
@@ -154,10 +169,13 @@ unsafe fn init_dxgi_capture(width: u32, height: u32) -> Result<DxgiCaptureState>
     let d3d_context = d3d_context.ok_or_else(|| Error::new(E_FAIL, "D3D11 context creation returned None"))?;
 
     // Step 6: Create output duplication
-    let duplication: IDXGIOutputDuplication = output1.DuplicateOutput(&adapter)?;
+    let duplication: IDXGIOutputDuplication = output1
+        .DuplicateOutput(&adapter)
+        .context("Failed to create desktop duplication - DXGI 1.2+ may not be available")?;
 
     // Step 7: Create staging texture for CPU readback
-    let staging_texture = create_staging_texture(&d3d_device, width, height)?;
+    let staging_texture = create_staging_texture(&d3d_device, width, height)
+        .context("Failed to create D3D11 staging texture")?;
 
     Ok(DxgiCaptureState {
         factory,
@@ -222,20 +240,49 @@ fn create_staging_texture(device: &ID3D11Device, width: u32, height: u32) -> Res
 /// - RDP session connects/disconnects
 /// - Display mode changes
 ///
+/// # Arguments
+///
+/// * `state` - Mutable capture state to reinitialize
+/// * `width` - New capture width
+/// * `height` - New capture height
+///
+/// # Returns
+///
+/// Returns `Ok(())` if reinitialization succeeded.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - `width` or `height` is 0
+/// - Output enumeration fails
+/// - Duplication creation fails
+/// - Staging texture recreation fails
+///
 /// # Safety
 ///
 /// Same as `init_dxgi_capture` — COM must be initialized.
-unsafe fn reinit_duplication(state: &mut DxgiCaptureState, width: u32, height: u32) -> Result<()> {
+unsafe fn reinit_duplication(state: &mut DxgiCaptureState, width: u32, height: u32) -> anyhow::Result<()> {
+    // Validate dimensions
+    if width == 0 || height == 0 {
+        return Err(anyhow::anyhow!("Capture dimensions must be > 0"));
+    }
+
     // Re-query output (may have changed)
-    let output: IDXGIOutput = state.adapter.EnumOutputs(0)?;
+    let output: IDXGIOutput = state
+        .adapter
+        .EnumOutputs(0)
+        .context("Failed to enumerate adapter outputs during reinit")?;
     let output1: IDXGIOutput1 = output.cast()?;
 
     // Create new duplication
-    let duplication: IDXGIOutputDuplication = output1.DuplicateOutput(&state.adapter)?;
+    let duplication: IDXGIOutputDuplication = output1
+        .DuplicateOutput(&state.adapter)
+        .context("Failed to recreate desktop duplication")?;
 
     // Update staging texture if dimensions changed
     if width != state.width || height != state.height {
-        let staging = create_staging_texture(&state.d3d_device, width, height)?;
+        let staging = create_staging_texture(&state.d3d_device, width, height)
+            .context("Failed to recreate staging texture")?;
         state.staging_texture = staging;
         state.width = width;
         state.height = height;
@@ -258,18 +305,22 @@ unsafe fn reinit_duplication(state: &mut DxgiCaptureState, width: u32, height: u
 /// # Arguments
 ///
 /// * `state` - Mutable reference to capture state (may be reinitialized)
-/// * `width` - Capture width
-/// * `height` - Capture height
+/// * `width` - Capture width (must match state or trigger reinit)
+/// * `height` - Capture height (must match state or trigger reinit)
 ///
 /// # Returns
 ///
-/// BGRA pixel data (width × height × 4 bytes), or black buffer on timeout.
+/// BGRA pixel data (width × height × 4 bytes), or black buffer on timeout/error.
 ///
 /// # Safety
 ///
 /// - COM must be initialized
 /// - State must be valid (or reinitialized on access lost)
 unsafe fn capture_frame(state: &mut DxgiCaptureState, width: u32, height: u32) -> Vec<u8> {
+    // Validate dimensions
+    if width == 0 || height == 0 {
+        return vec![0u8; (width * height * 4) as usize];
+    }
     // Validate dimensions match staging texture
     if width != state.width || height != state.height {
         // Dimensions changed — re-create staging texture
@@ -314,7 +365,8 @@ unsafe fn capture_frame(state: &mut DxgiCaptureState, width: u32, height: u32) -
                 return vec![0u8; (width * height * 4) as usize];
             }
         } else {
-            // Other error — return black
+            // Other error — log and return black
+            eprintln!("[screenshot] DXGI capture error: {}", e);
             return vec![0u8; (width * height * 4) as usize];
         }
     }
@@ -393,8 +445,8 @@ unsafe fn capture_frame(state: &mut DxgiCaptureState, width: u32, height: u32) -
 ///
 /// # Arguments
 ///
-/// * `width` - Capture width in pixels
-/// * `height` - Capture height in pixels
+/// * `width` - Capture width in pixels (must be > 0)
+/// * `height` - Capture height in pixels (must be > 0)
 /// * `monitor_rect` - Monitor rectangle (used to identify which monitor)
 ///
 /// # Returns
@@ -403,13 +455,17 @@ unsafe fn capture_frame(state: &mut DxgiCaptureState, width: u32, height: u32) -
 ///
 /// # Performance
 ///
-/// - DXGI: ~0.5-1ms (GPU-accelerated)
-/// - Falls back to BitBlt: ~5-7ms if DXGI unavailable
+/// | Method | Latency | GPU Offload |
+/// |--------|---------|-------------|
+/// | DXGI Output Duplication | ~0.5-1ms | Yes |
+/// | BitBlt (fallback) | ~5-7ms | No |
 ///
 /// # Safety
 ///
 /// - Must be called from thread with COM initialized
 /// - `monitor_rect` must identify a valid monitor
+/// - Width/height must be > 0
+#[must_use]
 pub unsafe fn capture_or_fallback(width: u32, height: u32, monitor_rect: Option<&RECT>) -> Vec<u8> {
     // Try DXGI capture first (only when monitor_rect is provided — indicates real capture)
     if monitor_rect.is_some() {
@@ -765,5 +821,16 @@ mod tests {
                 pixels.len()
             );
         }
+    }
+
+    /// Verify that invalid dimensions (0) are handled gracefully.
+    #[test]
+    fn test_capture_with_zero_dimensions() {
+        // SAFETY: Should return empty buffer without panic.
+        let result = unsafe { capture_or_fallback(0, 100, None) };
+        assert_eq!(result.len(), 0);
+        
+        let result = unsafe { capture_or_fallback(100, 0, None) };
+        assert_eq!(result.len(), 0);
     }
 }

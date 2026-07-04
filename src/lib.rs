@@ -51,10 +51,12 @@
 
 pub mod background;
 pub mod engine;
+pub mod gpu_init;
 pub mod loader;
 pub mod logic;
 pub mod screenshot;
 pub mod settings;
+pub mod soundgenerator;
 pub mod windows;
 
 /// Re-export of core GPU types for convenience
@@ -63,7 +65,9 @@ pub use engine::{GpuCore, Uniforms, WindowWrapper};
 pub use loader::FlowPackage;
 /// Re-export of logic engine
 pub use logic::LogicEngine;
+/// Re-export of sound generator
+pub use soundgenerator::{SoundGenerator, AudioBuffer, SoundParams};
 /// Re-export of settings
 pub use settings::AppSettings;
 /// Re-export of Windows integration functions
-pub use windows::{init_windows, MonitorWindow};
+pub use windows::{init_windows, register_window_class, MonitorWindow};

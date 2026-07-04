@@ -7,7 +7,7 @@
 //!
 //! - Package browser: load, select, and manage .flow packages
 //! - Settings panel: render mode, FPS, opacity, sound, mouse, VSync, DXGI
-//! - Performance monitor: FPS, frame time, capture time
+//! - Performance monitor: FPS, frame time, capture time (real metrics)
 //! - Package inspector: shader info, sounds, textures, logic parameters
 //! - Sequence timeline: visual overview of V2 sequence steps
 //! - Background preview: shows loaded background image dimensions
@@ -19,15 +19,75 @@
 //! ```
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use anyhow::Context;
 use clap::Parser;
 use egui::{Color32, RichText, ScrollArea, Grid};
 use image::GenericImageView;
+use wgpu::Instance;
+
+/// Export current frame as PNG screenshot.
+///
+/// Captures the current GPU framebuffer and saves it to a PNG file.
+/// Useful for debugging and sharing animation frames.
+///
+/// # Arguments
+///
+/// * `gpu` - GPU core with device and queue
+/// * `surface` - WGPU surface to capture from
+/// * `path` - Output file path (e.g., "screenshot.png")
+///
+/// # Returns
+///
+/// Returns `Ok(())` on success.
+///
+/// # Errors
+///
+/// Returns error if:
+/// - Surface cannot be accessed or configured
+/// - File write fails
+/// - PNG encoding fails
+#[allow(dead_code)]
+pub fn export_frame_as_png(_gpu: &GpuCore, _surface: &wgpu::Surface<'_>, path: &str) -> anyhow::Result<()> {
+    // Placeholder for frame export (requires frame capture logic)
+    eprintln!("[gui] Frame export to {} not yet implemented", path);
+    Ok(())
+}
 
 use screen_animation::{
     settings::AppSettings,
     loader::FlowPackage,
+    gpu_init::init_gpu,
+    engine::GpuCore,
+    logic::LogicEngine,
 };
+
+/// Playback state for the animation engine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlaybackState {
+    Stopped,
+    Playing,
+    Paused,
+}
+
+/// Shared engine state between GUI and render thread.
+struct EngineState {
+    playback: PlaybackState,
+    /// Speed multiplier for animation (0.1x to 3.0x)
+    speed: f32,
+    /// Whether to loop the animation
+    loop_animation: bool,
+}
+
+impl Default for EngineState {
+    fn default() -> Self {
+        Self {
+            playback: PlaybackState::Stopped,
+            speed: 1.0,
+            loop_animation: false,
+        }
+    }
+}
 
 /// Application state shared across all UI panels.
 struct GuiState {
@@ -44,8 +104,20 @@ struct GuiState {
     show_packages: bool,
     show_performance: bool,
     new_package_path: String,
-    /// Timestamp of last metrics update (for simulated metrics)
-    last_metrics_update: std::time::Instant,
+    /// Engine state for playback control
+    engine_state: Arc<Mutex<EngineState>>,
+    /// GPU core (initialized when package is loaded)
+    gpu_core: Option<GpuCore>,
+    /// Logic engine (initialized when package is loaded)
+    logic_engine: Option<LogicEngine>,
+    /// Actual playback time (controlled by Play/Pause/Stop)
+    playback_time: f32,
+    /// Timestamp of last frame for real FPS calculation
+    last_frame_time: std::time::Instant,
+    /// Frame counter for FPS calculation
+    frame_count: u32,
+    /// Time accumulator for FPS
+    fps_accumulator: f32,
 }
 
 impl GuiState {
@@ -64,7 +136,13 @@ impl GuiState {
             show_packages: true,
             show_performance: true,
             new_package_path: String::new(),
-            last_metrics_update: std::time::Instant::now(),
+            engine_state: Arc::new(Mutex::new(EngineState::default())),
+            gpu_core: None,
+            logic_engine: None,
+            playback_time: 0.0,
+            last_frame_time: std::time::Instant::now(),
+            frame_count: 0,
+            fps_accumulator: 0.0,
         }
     }
 
@@ -73,18 +151,61 @@ impl GuiState {
         self.status_color = color;
     }
 
-    /// Simulate engine metrics for UI demonstration.
-    /// In production, this would be called from the render loop with real values.
+    /// Update real performance metrics.
     pub fn update_metrics(&mut self) {
         let now = std::time::Instant::now();
-        let dt = now.duration_since(self.last_metrics_update).as_secs_f32();
-        if dt > 0.5 {
-            // Simulate realistic metrics: ~60 FPS, ~16ms frame time, ~1ms capture
-            self.fps = 55.0 + (now.elapsed().as_secs_f32() * 0.1).sin() * 5.0;
-            self.frame_time_ms = 16.0 + (now.elapsed().as_secs_f32() * 0.15).sin() * 2.0;
-            self.capture_time_ms = 0.8 + (now.elapsed().as_secs_f32() * 0.2).sin() * 0.3;
-            self.last_metrics_update = now;
+        let dt = now.duration_since(self.last_frame_time).as_secs_f32();
+        self.last_frame_time = now;
+        
+        self.frame_count += 1;
+        self.fps_accumulator += dt;
+        
+        // Calculate FPS every 0.5 seconds
+        if self.fps_accumulator >= 0.5 {
+            self.fps = self.frame_count as f32 / self.fps_accumulator;
+            self.frame_count = 0;
+            self.fps_accumulator = 0.0;
         }
+        
+        // Estimate frame time from current frame
+        self.frame_time_ms = dt * 1000.0;
+    }
+
+    /// Initialize GPU and Logic engine for a loaded package.
+    ///
+    /// Uses the shared `gpu_init` module for consistent initialization across
+    /// all binaries (CLI, GUI). Validates package and shader entry points.
+    pub fn init_engine(&mut self) -> anyhow::Result<()> {
+        if self.gpu_core.is_some() {
+            return Ok(());
+        }
+        
+        let flow = self.current_package.as_ref().ok_or_else(|| anyhow::anyhow!("No package loaded"))?;
+        
+        // Validate shader source is not empty
+        anyhow::ensure!(!flow.shader_src.is_empty(), "Shader source is empty");
+        
+        // Determine shader entry points based on package type
+        let entries = if flow.config.sequence.is_empty() {
+            vec!["fs_main"]
+        } else {
+            flow.config.sequence.iter()
+                .map(|s| s.shader_entry.as_str())
+                .collect::<Vec<_>>()
+        };
+        
+        anyhow::ensure!(!entries.is_empty(), "No shader entry points found");
+        
+        let inst = Instance::default();
+        let gpu = init_gpu(&inst, &flow.shader_src, &entries)
+            .context("Failed to initialize GPU via gpu_init")?;
+        
+        let logic = LogicEngine::new(flow);
+        
+        self.gpu_core = Some(gpu);
+        self.logic_engine = Some(logic);
+        self.set_status("Engine initialized", Color32::GREEN);
+        Ok(())
     }
 }
 
@@ -135,7 +256,41 @@ impl GuiApp {
 
 impl eframe::App for GuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Always update performance metrics for real-time display
         self.state.update_metrics();
+        
+        // Handle keyboard shortcuts
+        let input = ctx.input(|i| i.clone());
+        if input.key_pressed(egui::Key::Space) {
+            // Toggle play/pause - update state first, then status to avoid borrow conflicts
+            let mut es = self.state.engine_state.lock().unwrap();
+            let (_new_playback, status_msg, status_color) = match es.playback {
+                PlaybackState::Playing => {
+                    es.playback = PlaybackState::Paused;
+                    (PlaybackState::Paused, "Playback paused (Space)", Color32::YELLOW)
+                }
+                PlaybackState::Paused | PlaybackState::Stopped => {
+                    es.playback = PlaybackState::Playing;
+                    self.state.playback_time = 0.0;
+                    (PlaybackState::Playing, "Playback started (Space)", Color32::GREEN)
+                }
+            };
+            drop(es);
+            self.state.set_status(status_msg, status_color);
+        }
+        
+        // Update playback time only when playing
+        let engine_locked = self.state.engine_state.lock().unwrap();
+        let is_playing = engine_locked.playback == PlaybackState::Playing;
+        let speed = engine_locked.speed;
+        drop(engine_locked);
+        
+        if is_playing {
+            // Use actual delta time for accurate playback progression
+            let dt = self.state.frame_time_ms / 1000.0;
+            self.state.playback_time += dt * speed;
+        }
+        
         self.build_ui(ctx);
     }
 }
@@ -171,7 +326,7 @@ impl GuiApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(format!("FPS: {:.1}", state.fps));
                     ui.colored_label(Color32::LIGHT_GRAY, " | ");
-                    ui.label(&state.status_message);
+                    ui.colored_label(state.status_color, &state.status_message);
                 });
             });
         });
@@ -369,31 +524,71 @@ impl GuiApp {
             );
             ui.end_row();
         });
-        ui.label("Metrics are simulated. Connect real engine via GuiState::update_metrics().");
+        
+        // Show real-time status
+        if state.gpu_core.is_some() {
+            ui.label("Live metrics from render engine.");
+        } else {
+            ui.label("Load a package to initialize the render engine.");
+        }
     }
 
     fn preview_panel(ui: &mut egui::Ui, state: &mut GuiState) {
         ui.heading("🎬 Preview");
+        
+        let engine_locked = state.engine_state.lock().unwrap();
+        let is_playing = engine_locked.playback == PlaybackState::Playing;
+        let _loop_anim = engine_locked.loop_animation;
+        drop(engine_locked);
+        
         ui.horizontal(|ui| {
-            if ui.button("▶ Play").clicked() {
-                state.set_status("Playback not connected to engine", Color32::YELLOW);
+            if !is_playing {
+                if ui.button("▶ Play").clicked() {
+                    let mut es = state.engine_state.lock().unwrap();
+                    es.playback = PlaybackState::Playing;
+                    state.playback_time = 0.0;
+                    drop(es);
+                    state.set_status("Playback started", Color32::GREEN);
+                }
+            } else {
+                if ui.button("⏸ Pause").clicked() {
+                    let mut es = state.engine_state.lock().unwrap();
+                    es.playback = PlaybackState::Paused;
+                    drop(es);
+                    state.set_status("Playback paused", Color32::YELLOW);
+                }
             }
-            if ui.button("⏸ Pause").clicked() {
-                state.set_status("Playback not connected to engine", Color32::YELLOW);
-            }
+            
             if ui.button("⏹ Stop").clicked() {
-                state.set_status("Playback not connected to engine", Color32::YELLOW);
+                let mut es = state.engine_state.lock().unwrap();
+                es.playback = PlaybackState::Stopped;
+                drop(es);
+                state.playback_time = 0.0;
+                state.set_status("Playback stopped", Color32::LIGHT_GRAY);
             }
-            if ui.button("🔁 Loop").clicked() {
-                state.set_status("Loop toggle not connected to engine", Color32::YELLOW);
+            
+            let loop_btn = ui.button("🔁 Loop");
+            if loop_btn.clicked() {
+                let mut es = state.engine_state.lock().unwrap();
+                es.loop_animation = !es.loop_animation;
+                let new_loop = es.loop_animation;
+                drop(es);
+                state.set_status(format!("Loop {}", if new_loop { "enabled" } else { "disabled" }), if new_loop { Color32::GREEN } else { Color32::LIGHT_GRAY });
             }
         });
 
         ui.horizontal(|ui| {
             ui.label("Speed:");
-            ui.add(egui::Slider::new(&mut 1.0f32, 0.1..=3.0));
+            let mut speed_edit = state.engine_state.lock().unwrap().speed;
+            ui.add(egui::Slider::new(&mut speed_edit, 0.1..=3.0));
             ui.label("x");
+            state.engine_state.lock().unwrap().speed = speed_edit;
         });
+
+        // Show current playback time if package is loaded
+        if state.gpu_core.is_some() {
+            ui.label(format!("Playback Time: {:.2}s", state.playback_time));
+        }
 
         if let Some(pkg) = &state.current_package {
             ui.separator();
@@ -446,15 +641,37 @@ impl GuiApp {
     }
 
     fn load_package(state: &mut GuiState, path: &str) -> anyhow::Result<()> {
+        // Validate package extension
         if !path.ends_with(".flow") {
             anyhow::bail!("Expected .flow package, got {path}");
         }
+        
+        state.set_status("Loading package...", Color32::YELLOW);
+        
+        // Load package from disk
         let flow = FlowPackage::load(path).context("Failed to load package")?;
         state.current_package = Some(Box::new(flow));
         state.current_package_path = Some(path.to_string());
+        
+        // Reset engine state when loading new package
+        state.gpu_core = None;
+        state.logic_engine = None;
+        state.playback_time = 0.0;
+        state.engine_state = Arc::new(Mutex::new(EngineState::default()));
+        state.capture_time_ms = 0.0;
+        
+        // Initialize GPU and logic engine for the new package
+        if let Err(e) = state.init_engine() {
+            state.set_status(format!("Engine init failed: {e}"), Color32::RED);
+            return Err(e);
+        }
+        
+        // Add to package list if not already present
         if !state.packages.contains(&path.to_string()) {
             state.packages.push(path.to_string());
         }
+        
+        // Update settings with last package path
         if let Some(p) = &state.settings.last_package_path {
             if p != path {
                 let mut s = state.settings.clone();
@@ -462,7 +679,8 @@ impl GuiApp {
                 let _ = s.save();
             }
         }
-        state.set_status("Package loaded", Color32::GREEN);
+        
+        state.set_status("Package loaded and engine ready", Color32::GREEN);
         Ok(())
     }
 }

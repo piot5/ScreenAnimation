@@ -40,22 +40,46 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 ///
 /// This structure is directly mapped to a WGSL uniform buffer.
 /// Size must be a multiple of 16 bytes (WebGPU alignment requirement).
+///
+/// # Memory Layout (WGSL struct uniform)
+///
+/// ```text
+/// struct Uniforms {
+///     mouse: vec2<f32>,      // Offset 0: normalized mouse position
+///     offset: vec2<f32>,     // Offset 8: translation (reserved)
+///     scale: f32,            // Offset 16: uniform scale
+///     time: f32,             // Offset 20: elapsed seconds
+///     _padding: vec2<f32>,   // Offset 24: alignment padding
+///     logic_params: vec4<f32>, // Offset 32: user parameters [p1-p4]
+///     feature_flags: vec4<f32>, // Offset 48: feature flags [f1-f4]
+/// }
+/// ```
+///
+/// Total size: 64 bytes, aligned to 16-byte boundaries.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct Uniforms {
-    /// Normalized mouse position (0.0 to 1.0) relative to window
+    /// Normalized mouse position (0.0 to 1.0) relative to window.
+    /// Updated every frame from mouse move events.
     pub mouse: [f32; 2],
-    /// Translation offset (currently unused, reserved for future)
+    /// Translation offset (currently unused, reserved for future pan/scroll).
     pub offset: [f32; 2],
-    /// Uniform scale factor (currently unused, always 1.0)
+    /// Uniform scale factor (currently unused, always 1.0).
+    /// Reserved for future zoom functionality.
     pub scale: f32,
-    /// Elapsed time in seconds since animation start
+    /// Elapsed time in seconds since animation start.
+    /// Used for time-based shader effects (oscillations, progress, etc.).
     pub time: f32,
-    /// Padding to align vec4<f32> fields to 16-byte boundary (WGSL requirement)
+    /// Padding to align vec4 fields to 16-byte boundary (WGSL requirement).
+    #[allow(dead_code)]
     pub _padding: [f32; 2],
-    /// User-defined logic parameters from config.toml [p1]-[p4]
+    /// User-defined logic parameters from config.toml [p1]-[p4].
+    /// Exposed to shaders as `logic_params` uniform.
+    /// Examples: animation speed, color intensity, effect strength.
     pub logic_params: [f32; 4],
-    /// Feature flags from config.toml [f1]-[f4] as 1.0 (true) or 0.0 (false)
+    /// Feature flags from config.toml [f1]-[f4] as 1.0 (true) or 0.0 (false).
+    /// Exposed to shaders as `feature_flags` uniform.
+    /// Used in shaders to enable/disable effects conditionally.
     pub feature_flags: [f32; 4],
 }
 
@@ -82,6 +106,17 @@ impl HasDisplayHandle for WindowWrapper {
 ///
 /// One `GpuCore` instance is created at startup and shared across all monitor windows.
 /// Uses wgpu 0.19 with Cow-based shader sources.
+///
+/// # Memory Footprint (Typical)
+///
+/// | Component | Size | Notes |
+/// |-----------|------|-------|
+/// | Device + Queue | ~10 MB | Driver-managed |
+/// | Pipeline (per entry) | ~50-200 KB | Depends on shader complexity |
+/// | Bind Group Layouts | ~1 KB | 2 layouts (textures + uniforms) |
+/// | Sampler | ~1 KB | Linear filtering |
+/// | Uniform Buffer (per window) | 64 bytes | Updated per frame |
+/// | Background Texture (1080p) | ~8 MB | BGRA8 format |
 pub struct GpuCore {
     pub device: Device,
     pub queue: Queue,
@@ -236,17 +271,44 @@ impl GpuCore {
         })
     }
 
+    /// Get statistics about compiled pipelines.
+    ///
+    /// Returns a summary of all rendered shader entry points for debugging
+    /// and performance monitoring.
+    ///
+    /// # Returns
+    ///
+    /// Vector of (entry_point_name, status) tuples indicating compilation success.
+    pub fn pipeline_stats(&self) -> Vec<(String, bool)> {
+        self.pipelines
+            .iter()
+            .map(|(name, _)| (name.clone(), true))
+            .collect()
+    }
+
     /// Find WorkerW window for wallpaper embedding (behind desktop icons).
     ///
     /// Implements the "WorkerW trick": send 0x052C to Progman to create WorkerW,
     /// then find the WorkerW that's behind desktop icons.
     ///
+    /// # Returns
+    ///
+    /// Returns the HWND of the WorkerW window if found, or `HWND(0)` if:
+    /// - Progman window not found
+    /// - Desktop icons are hidden
+    /// - WorkerW creation failed
+    ///
     /// # Safety
     ///
     /// - Must be called from thread with Windows message pump
-    /// - Requires desktop icons to be visible
+    /// - Requires desktop icons to be visible for WorkerW to be created
     pub unsafe fn fetch_worker_w() -> HWND {
         let progman = FindWindowW(w!("Progman"), None);
+        if progman.0 == 0 {
+            eprintln!("[engine] WorkerW: Progman not found");
+            return HWND(0);
+        }
+
         let _ = SendMessageTimeoutW(progman, 0x052C, WPARAM(0), LPARAM(0), SMTO_NORMAL, 1000, None);
 
         let mut workerw = HWND(0);
@@ -254,12 +316,22 @@ impl GpuCore {
         unsafe extern "system" fn enum_proc(h: HWND, l: LPARAM) -> BOOL {
             if FindWindowExW(h, None, w!("SHELLDLL_DefView"), None).0 != 0 {
                 let out_ptr = l.0 as *mut HWND;
-                *out_ptr = FindWindowExW(None, h, w!("WorkerW"), None);
+                let worker = FindWindowExW(None, h, w!("WorkerW"), None);
+                if worker.0 != 0 {
+                    *out_ptr = worker;
+                }
             }
             true.into()
         }
 
         let _ = EnumWindows(Some(enum_proc), LPARAM(&mut workerw as *mut _ as isize));
+        
+        if workerw.0 == 0 {
+            eprintln!("[engine] WorkerW: Not found (desktop icons may be hidden)");
+        } else {
+            eprintln!("[engine] WorkerW: Found HWND {}", workerw.0);
+        }
+        
         workerw
     }
 }

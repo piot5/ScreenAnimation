@@ -266,19 +266,25 @@ impl FlowPackage {
                 let mut buffer = Vec::new();
                 file.read_to_end(&mut buffer)?;
                 // Decode image and convert to RGBA8
-                if let Ok(img) = image::load_from_memory(&buffer) {
-                    let (w, h) = img.dimensions();
-                    // Security: Validate texture dimensions
-                    anyhow::ensure!(
-                        w <= Self::MAX_TEXTURE_DIMENSION && h <= Self::MAX_TEXTURE_DIMENSION,
-                        "Texture {}x{} exceeds max dimension {}",
-                        w,
-                        h,
-                        Self::MAX_TEXTURE_DIMENSION
-                    );
-                    let rgba = img.to_rgba8();
-                    // Store dimensions + raw pixel data
-                    textures.insert(name, (w, h, rgba.into_raw()));
+                match image::load_from_memory(&buffer) {
+                    Ok(img) => {
+                        let (w, h) = img.dimensions();
+                        // Security: Validate texture dimensions
+                        anyhow::ensure!(
+                            w <= Self::MAX_TEXTURE_DIMENSION && h <= Self::MAX_TEXTURE_DIMENSION,
+                            "Texture {}x{} exceeds max dimension {}",
+                            w,
+                            h,
+                            Self::MAX_TEXTURE_DIMENSION
+                        );
+                        let rgba = img.to_rgba8();
+                        // Store dimensions + raw pixel data
+                        textures.insert(name, (w, h, rgba.into_raw()));
+                    }
+                    Err(e) => {
+                        eprintln!("[loader] Warning: Failed to decode texture '{}': {}", name, e);
+                        // Skip invalid textures but continue loading package
+                    }
                 }
             }
         }
@@ -303,6 +309,10 @@ impl FlowPackage {
     ///
     /// The f32 value from config, or default if missing.
     ///
+    /// # Performance
+    ///
+    /// O(1) HashMap lookup.
+    ///
     /// # Example
     ///
     /// ```ignore
@@ -321,7 +331,11 @@ impl FlowPackage {
     ///
     /// # Returns
     ///
-    /// true if feature is enabled in config, false otherwise.
+    /// `true` if feature is enabled in config, `false` if disabled or missing.
+    ///
+    /// # Performance
+    ///
+    /// O(1) HashMap lookup.
     ///
     /// # Example
     ///

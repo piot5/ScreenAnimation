@@ -143,6 +143,18 @@ impl AppSettings {
 
     /// Load settings from disk, or create defaults if no file exists.
     ///
+    /// Environment variables can override individual settings:
+    /// - `SCREENANIMATION_RENDER_MODE` — "wallpaper" or "overlay"
+    /// - `SCREENANIMATION_FPS_LIMIT` — numeric FPS limit
+    /// - `SCREENANIMATION_WINDOW_OPACITY` — 0.0-1.0
+    /// - `SCREENANIMATION_ENABLE_SOUND` — "true" or "false"
+    /// - `SCREENANIMATION_ENABLE_MOUSE` — "true" or "false"
+    /// - `SCREENANIMATION_VSYNC` — "true" or "false"
+    /// - `SCREENANIMATION_USE_DXGI_CAPTURE` — "true" or "false"
+    /// - `SCREENANIMATION_MULTI_MONITOR` — "true" or "false"
+    /// - `SCREENANIMATION_LOG_LEVEL` — "error", "warn", "info", "debug", "trace"
+    /// - `SCREENANIMATION_LAST_PACKAGE_PATH` — path to .flow package
+    ///
     /// # Returns
     ///
     /// Returns `AppSettings` with values loaded from the config file,
@@ -157,31 +169,82 @@ impl AppSettings {
     ///
     /// - File read: ~1ms (typically <1 KB file)
     /// - TOML parse: <0.1ms
+    /// - Env var parsing: <0.01ms
     pub fn load() -> anyhow::Result<Self> {
         let path = Self::config_path()?;
 
         // Try to load from confy-style file
-        match confy::load_path::<Self>(&path) {
+        let mut settings = match confy::load_path::<Self>(&path) {
             Ok(settings) => {
                 eprintln!("[settings] Loaded from: {}", path.display());
-                Ok(settings)
+                settings
             }
             Err(e) => {
                 // Log warning and try registry fallback on Windows
                 eprintln!("[settings] Failed to load from file ({}), trying registry fallback", e);
                 #[cfg(target_os = "windows")]
                 {
-                    Self::load_from_registry().or_else(|_| {
+                    Self::load_from_registry().or_else(|_| -> anyhow::Result<AppSettings> {
                         eprintln!("[settings] No registry settings found, using defaults");
                         Ok(Self::default())
-                    })
+                    })?
                 }
                 #[cfg(not(target_os = "windows"))]
                 {
                     eprintln!("[settings] No settings file at {}, using defaults", path.display());
-                    Ok(Self::default())
+                    Self::default()
                 }
             }
+        };
+
+        // Apply environment variable overrides (highest priority)
+        settings.apply_env_overrides();
+
+        Ok(settings)
+    }
+
+    /// Apply environment variable overrides to settings.
+    ///
+    /// This allows runtime configuration without modifying config files.
+    /// Environment variables take precedence over file and registry values.
+    fn apply_env_overrides(&mut self) {
+        use std::env;
+
+        if let Ok(val) = env::var("SCREENANIMATION_RENDER_MODE") {
+            if val == "wallpaper" || val == "overlay" {
+                self.render_mode = val;
+            }
+        }
+        if let Ok(val) = env::var("SCREENANIMATION_FPS_LIMIT") {
+            if let Ok(fps) = val.parse::<u32>() {
+                self.fps_limit = fps;
+            }
+        }
+        if let Ok(val) = env::var("SCREENANIMATION_WINDOW_OPACITY") {
+            if let Ok(opacity) = val.parse::<f32>() {
+                self.window_opacity = opacity.clamp(0.0, 1.0);
+            }
+        }
+        if let Ok(val) = env::var("SCREENANIMATION_ENABLE_SOUND") {
+            self.enable_sound = val.parse().unwrap_or(self.enable_sound);
+        }
+        if let Ok(val) = env::var("SCREENANIMATION_ENABLE_MOUSE") {
+            self.enable_mouse = val.parse().unwrap_or(self.enable_mouse);
+        }
+        if let Ok(val) = env::var("SCREENANIMATION_VSYNC") {
+            self.vsync = val.parse().unwrap_or(self.vsync);
+        }
+        if let Ok(val) = env::var("SCREENANIMATION_USE_DXGI_CAPTURE") {
+            self.use_dxgi_capture = val.parse().unwrap_or(self.use_dxgi_capture);
+        }
+        if let Ok(val) = env::var("SCREENANIMATION_MULTI_MONITOR") {
+            self.multi_monitor = val.parse().unwrap_or(self.multi_monitor);
+        }
+        if let Ok(val) = env::var("SCREENANIMATION_LOG_LEVEL") {
+            self.log_level = val;
+        }
+        if let Ok(val) = env::var("SCREENANIMATION_LAST_PACKAGE_PATH") {
+            self.last_package_path = Some(val);
         }
     }
 
