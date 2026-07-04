@@ -87,62 +87,11 @@ Multi-step sequence: capture screen with flash, detach with lift, move to target
 
 ### config.toml
 
-```toml
-# Logic parameters (passed to shader as vec4)
-[logic]
-param1 = 1.0
-param2 = 0.0
-param3 = 0.0
-param4 = 0.0
 
-# Feature flags (passed as 0.0 or 1.0)
-[features]
-feature1 = true
-feature2 = false
-
-# Mode: "wallpaper" or "animation"
-mode = "wallpaper"
-
-# Fragment shader entry point
-shader = "fs_default"
-
-# Sequence mode (optional)
-[[sequence]]
-name = "intro"
-duration_ms = 1000
-shader_entry = "fs_intro"
-sound = "intro.wav"
-```
 
 ### WGSL Shader
 
-```wgsl
-struct Uniforms {
-    mouse: vec2f,         // Cursor position (0-1)
-    offset: vec2f,        // Translation offset
-    scale: f32,           // Scale factor
-    time: f32,            // Elapsed seconds
-    logic_params: vec4f,  // [p1, p2, p3, p4]
-    feature_flags: vec4f  // [f1, f2, f3, f4]
-};
 
-@group(0) @binding(0) var tex0: texture_2d<f32>;
-@group(0) @binding(1) var samp0: sampler;
-@group(1) @binding(0) var<uniform> u: Uniforms;
-
-@vertex
-fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
-    // Fullscreen quad (6 vertices)
-    ...
-}
-
-@fragment
-fn fs_default(@builtin(position) coord: vec4f) -> @location(0) vec4f {
-    let uv = coord.xy / vec2f(textureDimensions(tex0));
-    let color = textureSample(tex0, samp0, uv);
-    return vec4f(color.rgb, 1.0);
-}
-```
 
 ## Architecture
 
@@ -171,9 +120,7 @@ FlowPackage → GpuCore → MonitorWindows → Render Loop
 
 ## Documentation
 
-- [.flow Package Format](docs/format.md)
-- [Architecture Overview](docs/architecture.md)
-- [Building Guide](docs/building.md)
+
 
 ## License
 

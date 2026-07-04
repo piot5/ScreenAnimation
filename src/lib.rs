@@ -17,13 +17,14 @@
 //! - `soundgenerator`: Real-time audio synthesis (sine waves, noise, envelopes)
 //! - `settings`: Persistent user settings via confy + Windows Registry fallback
 //!
-//! # wgpu Migration
+//! # wgpu Version
 //!
-//! This crate uses wgpu 0.24 (upgraded from 0.19). Key migration details:
-//! - `Surface::get_supported_formats()` → `Surface::get_capabilities()`
-//! - `DeviceDescriptor` now has `required_features`, `required_limits`, `memory_hints`
-//! - `ShaderSource::Wgsl` takes `Cow<'_, str>` instead of `Into<Cow<'_, str>>`
-//! - `RenderPipelineDescriptor` entry points use `Some("name")` (Option<&str>)
+//! This crate uses wgpu 0.19. Key API notes:
+//! - `ShaderSource::Wgsl` takes `Cow<'_, str>`
+//! - `DeviceDescriptor` uses `label: Some("...")`
+//! - `Surface::get_supported_formats()` is used (not `get_capabilities()`)
+//! - `RenderPipelineDescriptor` entry points use `&str`
+//! - `Instance::create_surface()` takes `impl Into<SurfaceTarget<'a>>` via raw-window-handle
 //!
 //! # DXGI Migration
 //!
@@ -34,6 +35,7 @@
 //! # Example
 //!
 //! ```ignore
+//! // NOTE: Requires Windows SDK and GPU. Run with `cargo run --bin cli -- --package animation.flow`
 //! use screen_animation::{engine::GpuCore, loader::FlowPackage, logic::LogicEngine, windows::init_windows};
 //!
 //! // Load animation package
@@ -53,7 +55,6 @@ pub mod loader;
 pub mod logic;
 pub mod screenshot;
 pub mod settings;
-pub mod soundgenerator;
 pub mod windows;
 
 /// Re-export of core GPU types for convenience

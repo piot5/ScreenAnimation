@@ -10,13 +10,13 @@
 //! - One pipeline per unique shader entry point (cached in HashMap)
 //! - Bind group layout supports up to 4 texture/sampler pairs (2 for desktop, 2 for custom)
 //!
-//! # wgpu Migration Notes (0.19 → 22)
+//! # wgpu 0.19 API Notes
 //!
 //! - `Instance::create_surface()` takes `impl Into<SurfaceTarget<'a>>` from raw-window-handle
-//! - `DeviceDescriptor` has `label` field (anyhow::Context not needed for simple errors)
+//! - `DeviceDescriptor` has `label` field
 //! - `ShaderSource::Wgsl(Cow::Borrowed(s))` format
 //! - `RenderPipelineDescriptor` entry_point takes `&str`
-//! - `Surface::get_supported_formats()` → `Surface::get_capabilities()`
+//! - `Surface::get_supported_formats()` used directly (not `get_capabilities()`)
 //!
 //! # Safety
 //!
@@ -81,7 +81,7 @@ impl HasDisplayHandle for WindowWrapper {
 /// Core WGPU abstraction: device, queue, pipelines, bind group layouts.
 ///
 /// One `GpuCore` instance is created at startup and shared across all monitor windows.
-/// wgpu 22: Uses updated API with Cow-based shader sources and adjusted struct fields.
+/// Uses wgpu 0.19 with Cow-based shader sources.
 pub struct GpuCore {
     pub device: Device,
     pub queue: Queue,
@@ -94,7 +94,7 @@ pub struct GpuCore {
 impl GpuCore {
     /// Initialize GPU core with device, pipelines, and layouts.
     ///
-    /// wgpu 22: DeviceDescriptor with label, ShaderSource::Wgsl(Cow), entry_point as &str.
+    /// wgpu 0.19: DeviceDescriptor with label, ShaderSource::Wgsl(Cow), entry_point as &str.
     pub async fn new(instance: &Instance, shader_src: &str, entries: &[&str]) -> anyhow::Result<Self> {
         // Try multiple adapter fallback strategies for maximum compatibility
         // 1. Try high-performance GPU first

@@ -1,101 +1,74 @@
-[version]
-version = 1
-description = "Industrial-grade coding standards for ScreenAnimation"
+# Hybrid-Agent Architecture Rules
 
-[general]
-# Code style preferences
-indent_style = 4
-indent_type = spaces
-max_line_length = 120
-trailing_newline = true
-final_newline = true
+## 1. PRIMARY DIRECTIVE: Local Semantic Search First
 
-# Documentation requirements
-require_doc_comments = true
-require_safety_comments = true
-require_architecture_docs = true
+You (the Cloud Agent) MUST NOT use `read_file`, `search_files`, `list_code_definition_names`, or `list_files` to explore large source files or directories unless:
 
-# Error handling
-require_result_types = true
-require_context_messages = true
-max_nesting_depth = 4
+- The file is < 30 lines and you need exact content for editing
+- The semantic-search MCP server is unreachable (returning errors)
 
-[rust]
-# Naming conventions
-module_names = "snake_case"
-struct_names = "PascalCase"
-function_names = "snake_case"
-constant_names = "SCREAMING_SNAKE_CASE"
-static_names = "SCREAMING_SNAKE_CASE"
+## 2. ALWAYS Query Local MCP First
 
-# Code organization
-max_functions_per_module = 20
-max_lines_per_function = 50
-require_module_level_docs = true
+Before any code exploration task, you MUST execute:
 
-# Safety
-require_unsafe_documentation = true
-require_safety_explanations = true
-prefer_safe_abstractions = true
+```
+use_mcp_tool:
+  server_name: "semantic-search"
+  tool_name: "search_code"
+  arguments:
+    query: "<natural language description of what you need>"
+    top_k: 10
+```
 
-# Error handling patterns
-prefer_anyhow_context = true
-require_error_messages = true
-max_error_chain_depth = 3
+Use `index_status` to confirm the project is indexed before querying.
 
-[comments]
-# Documentation requirements
-require_module_docs = true
-require_function_docs = true
-require_struct_docs = true
-require_field_docs = true
+## 3. Delegate Heavy Evaluation to Local Subagent
 
-# Comment quality
-min_comment_length = 10
-require_examples = true
-require_safety_notes_for_unsafe = true
+When a task requires:
 
-[architecture]
-# Design patterns
-require_separation_of_concerns = true
-prefer_composition_over_inheritance = true
-require_single_responsibility = true
+- Multi-file read loops (3+ files)
+- Understanding cross-file relationships or call chains
+- Pattern analysis across many files
+- Generating large summaries
 
-# Module organization
-require_clear_module_boundaries = true
-prefer_small_modules = true
-max_module_dependencies = 5
+You MUST delegate to a local Ollama subagent using:
 
-[testing]
-require_unit_tests = true
-require_integration_tests = true
-require_documentation_tests = true
-test_coverage_target = 80
+```
+use_mcp_tool:
+  server_name: "github.com/NightTrek/Ollama-mcp"
+  tool_name: "chat_completion"
+  arguments:
+    model: "hhao/qwen2.5-coder-tools:latest"
+    messages: [
+      {
+        role: "system",
+        content: "You are a local code analysis agent. Read the requested files and return only a compressed summary of findings. Do NOT output code blocks larger than 30 lines."
+      },
+      {
+        role: "user",
+        content: "<task description with specific file paths and questions>"
+      }
+    ]
+```
 
-[security]
-require_input_validation = true
-require_error_handling = true
-prohibit_unwrap_in_production = true
-require_secure_coding_practices = true
+## 4. Context Preservation Rules
 
-[performance]
-require_performance_comments = true
-require_memory_safety_notes = true
-prefer_zero_cost_abstractions = true
-require_allocation_documentation = true
+- NEVER send raw file contents > 50 lines into your context
+- The local subagent's summary must be ≤ 500 tokens
+- Preference: semantic-search results → file summary (get_file_summary) → targeted read_file (only if absolutely needed)
 
-[documentation]
-# README requirements
-require_readme = true
-require_build_instructions = true
-require_usage_examples = true
+## 5. Fallback
 
-# API documentation
-require_public_api_docs = true
-require_code_examples = true
-require_architecture_diagrams = true
+If semantic-search MCP server is unavailable:
+1. Run `use_mcp_tool: server_name="semantic-search", tool_name="index_status"`
+2. If still failing, note it and fall back to standard file tools, but flag the issue
 
-# Format
-prefer_markdown = true
-require_code_highlighting = true
-max_line_length_docs = 100
+## 6. Tool Access
+
+The following MCP servers are available for local GPU-accelerated operations:
+
+| Server | Tools | Purpose |
+|--------|-------|---------|
+| `semantic-search` | `index_project`, `search_code`, `get_file_summary`, `index_status` | Code search & indexing on GPU |
+| `github.com/NightTrek/Ollama-mcp` | `chat_completion`, `run`, `embeddings` | Local LLM inference for subagent tasks |
+| `image-generator` | `generate_image`, `enhance_image` | Image generation |

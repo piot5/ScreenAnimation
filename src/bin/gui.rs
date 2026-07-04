@@ -1,17 +1,35 @@
+//! GUI Control Panel for ScreenAnimation.
+//!
+//! This binary provides a graphical user interface for managing animation packages,
+//! adjusting settings, and monitoring performance. Built with egui/eframe.
+//!
+//! # Features
+//!
+//! - Package browser: load, select, and manage .flow packages
+//! - Settings panel: render mode, FPS, opacity, sound, mouse, VSync, DXGI
+//! - Performance monitor: FPS, frame time, capture time
+//! - Package inspector: shader info, sounds, textures, logic parameters
+//! - Sequence timeline: visual overview of V2 sequence steps
+//! - Background preview: shows loaded background image dimensions
+//!
+//! # Usage
+//!
+//! ```text
+//! cargo run --bin gui [--package animation.flow]
+//! ```
+
 use std::path::PathBuf;
-use anyhow::{Context, Result};
+use anyhow::Context;
 use clap::Parser;
 use egui::{Color32, RichText, ScrollArea, Grid};
 use image::GenericImageView;
-use pollster::block_on;
-use wgpu::Instance;
-use windows::Win32::Foundation::HINSTANCE;
 
 use screen_animation::{
     settings::AppSettings,
     loader::FlowPackage,
 };
 
+/// Application state shared across all UI panels.
 struct GuiState {
     settings: AppSettings,
     packages: Vec<String>,
@@ -26,6 +44,8 @@ struct GuiState {
     show_packages: bool,
     show_performance: bool,
     new_package_path: String,
+    /// Timestamp of last metrics update (for simulated metrics)
+    last_metrics_update: std::time::Instant,
 }
 
 impl GuiState {
@@ -44,12 +64,27 @@ impl GuiState {
             show_packages: true,
             show_performance: true,
             new_package_path: String::new(),
+            last_metrics_update: std::time::Instant::now(),
         }
     }
 
     pub fn set_status(&mut self, msg: impl Into<String>, color: Color32) {
         self.status_message = msg.into();
         self.status_color = color;
+    }
+
+    /// Simulate engine metrics for UI demonstration.
+    /// In production, this would be called from the render loop with real values.
+    pub fn update_metrics(&mut self) {
+        let now = std::time::Instant::now();
+        let dt = now.duration_since(self.last_metrics_update).as_secs_f32();
+        if dt > 0.5 {
+            // Simulate realistic metrics: ~60 FPS, ~16ms frame time, ~1ms capture
+            self.fps = 55.0 + (now.elapsed().as_secs_f32() * 0.1).sin() * 5.0;
+            self.frame_time_ms = 16.0 + (now.elapsed().as_secs_f32() * 0.15).sin() * 2.0;
+            self.capture_time_ms = 0.8 + (now.elapsed().as_secs_f32() * 0.2).sin() * 0.3;
+            self.last_metrics_update = now;
+        }
     }
 }
 
@@ -62,11 +97,11 @@ struct Args {
 }
 
 fn main() -> anyhow::Result<()> {
-    eprintln!("ScreenAnimation GUI starting...");
+    eprintln!("[gui] ScreenAnimation GUI starting...");
 
     let settings = AppSettings::load().context("Failed to load settings")?;
-    println!(
-        "Settings: render_mode={}, fps_limit={}",
+    eprintln!(
+        "[gui] Settings loaded: render_mode={}, fps_limit={}",
         settings.render_mode, settings.fps_limit
     );
 
@@ -100,6 +135,7 @@ impl GuiApp {
 
 impl eframe::App for GuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.state.update_metrics();
         self.build_ui(ctx);
     }
 }
@@ -108,6 +144,7 @@ impl GuiApp {
     fn build_ui(&mut self, ctx: &egui::Context) {
         let state = &mut self.state;
 
+        // Top menu bar
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
@@ -139,6 +176,7 @@ impl GuiApp {
             });
         });
 
+        // Left sidebar: package list
         egui::SidePanel::left("packages").show(ctx, |ui| {
             ui.heading("Packages");
             ui.separator();
@@ -175,12 +213,16 @@ impl GuiApp {
                 }
             });
             ui.separator();
-            ui.label(format!(
-                "Memory: ~{} MB",
-                state.current_package.as_ref().map(|_| 24).unwrap_or(0)
-            ));
+            let mem_mb = state.current_package.as_ref().map(|pkg| {
+                let sounds_size: usize = pkg.sounds.values().map(|s| s.len()).sum();
+                let textures_size: usize = pkg.textures.values().map(|(_, _, d)| d.len()).sum();
+                let shader_size = pkg.shader_src.len();
+                (sounds_size + textures_size + shader_size) / (1024 * 1024)
+            }).unwrap_or(0);
+            ui.label(format!("Memory: ~{} MB", mem_mb));
         });
 
+        // Central panel: settings, packages, performance, preview
         egui::CentralPanel::default().show(ctx, |ui| {
             if state.show_settings {
                 Self::settings_panel(ui, state);
@@ -199,17 +241,23 @@ impl GuiApp {
             }
         });
 
+        // Bottom status bar
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label(&state.status_message);
                 ui.colored_label(Color32::GRAY, " | ");
                 ui.label(format!("Render: {}", state.settings.render_mode));
+                if let Some(ref pkg) = state.current_package {
+                    ui.colored_label(Color32::GRAY, " | ");
+                    let mode = if pkg.config.sequence.is_empty() { "V1" } else { "V2" };
+                    ui.label(format!("Mode: {}", mode));
+                }
             });
         });
     }
 
     fn settings_panel(ui: &mut egui::Ui, state: &mut GuiState) {
-        ui.heading(RichText::new("Settings").size(18.0));
+        ui.heading(RichText::new("⚙ Settings").size(18.0));
         Grid::new("cfg").show(ui, |ui: &mut egui::Ui| {
             ui.label("Render Mode:");
             ui.horizontal(|ui| {
@@ -248,14 +296,14 @@ impl GuiApp {
         });
 
         ui.horizontal(|ui| {
-            if ui.button("Save").clicked() {
+            if ui.button("💾 Save").clicked() {
                 if let Err(e) = state.settings.save() {
                     state.set_status(format!("Save failed: {e}"), Color32::RED);
                 } else {
                     state.set_status("Settings saved", Color32::GREEN);
                 }
             }
-            if ui.button("Defaults").clicked() {
+            if ui.button("↺ Defaults").clicked() {
                 let _ = AppSettings::reset_to_defaults();
                 state.settings = AppSettings::default();
                 state.set_status("Defaults restored", Color32::YELLOW);
@@ -264,7 +312,7 @@ impl GuiApp {
     }
 
     fn packages_panel(ui: &mut egui::Ui, state: &mut GuiState) {
-        ui.heading(RichText::new("Packages").size(18.0));
+        ui.heading(RichText::new("📦 Packages").size(18.0));
         ui.label(format!(
             "Active: {}",
             state.current_package_path.as_deref().unwrap_or("<none>")
@@ -283,29 +331,45 @@ impl GuiApp {
             ui.label(format!("Sounds: {}", pkg.sounds.len()));
             ui.label(format!("Textures: {}", pkg.textures.len()));
             ui.separator();
-            ui.label("Logic:");
+            ui.label("Logic Parameters:");
             for (k, v) in &pkg.config.logic {
-                ui.label(format!("{k}: {v:.3}"));
+                ui.label(format!("  {k}: {v:.3}"));
+            }
+            if !pkg.config.features.is_empty() {
+                ui.separator();
+                ui.label("Features:");
+                for (k, v) in &pkg.config.features {
+                    ui.label(format!("  {k}: {}", if *v { "✅" } else { "❌" }));
+                }
             }
         }
     }
 
     fn performance_panel(ui: &mut egui::Ui, state: &mut GuiState) {
-        ui.heading(RichText::new("Performance").size(18.0));
+        ui.heading(RichText::new("📊 Performance").size(18.0));
         Grid::new("perf").show(ui, |ui: &mut egui::Ui| {
             ui.label("FPS:");
-            ui.label(format!("{:.1}", state.fps));
+            ui.colored_label(
+                if state.fps >= 55.0 { Color32::GREEN } else if state.fps >= 30.0 { Color32::YELLOW } else { Color32::RED },
+                format!("{:.1}", state.fps),
+            );
             ui.end_row();
 
-            ui.label("Frame:");
-            ui.label(format!("{:.2} ms", state.frame_time_ms));
+            ui.label("Frame Time:");
+            ui.colored_label(
+                if state.frame_time_ms <= 20.0 { Color32::GREEN } else if state.frame_time_ms <= 33.0 { Color32::YELLOW } else { Color32::RED },
+                format!("{:.2} ms", state.frame_time_ms),
+            );
             ui.end_row();
 
-            ui.label("Capture:");
-            ui.label(format!("{:.2} ms", state.capture_time_ms));
+            ui.label("Capture Time:");
+            ui.colored_label(
+                if state.capture_time_ms <= 2.0 { Color32::GREEN } else if state.capture_time_ms <= 5.0 { Color32::YELLOW } else { Color32::RED },
+                format!("{:.2} ms", state.capture_time_ms),
+            );
             ui.end_row();
         });
-        ui.label("Connect engine metrics via GuiState::update_metrics.");
+        ui.label("Metrics are simulated. Connect real engine via GuiState::update_metrics().");
     }
 
     fn preview_panel(ui: &mut egui::Ui, state: &mut GuiState) {

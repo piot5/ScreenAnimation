@@ -12,6 +12,12 @@
 //! | Linux | `~/.config/screen_animation/preferences.toml` | - |
 //! | macOS | `~/Library/Application Support/screen_animation/preferences.toml` | - |
 //!
+//! # Thread Safety
+//!
+//! `AppSettings` implements `Clone` and can be shared across threads.
+//! File I/O operations are not atomic across processes, but confy uses
+//! atomic writes (write to temp file + rename) for crash safety.
+//!
 //! # Example
 //!
 //! ```ignore
@@ -19,6 +25,7 @@
 //!
 //! let settings = AppSettings::load().unwrap();
 //! println!("Render mode: {}", settings.render_mode);
+//! settings.save().unwrap();
 //! ```
 
 use anyhow::Context;
@@ -40,13 +47,15 @@ use windows::core::PCWSTR;
 /// - `use_dxgi_capture`: Use DXGI instead of BitBlt (default: true)
 /// - `multi_monitor`: Span animations across all monitors (default: true)
 /// - `log_level`: Logging verbosity (default: "info")
+/// - `schema_version`: Settings schema version for migration (default: 1)
 ///
-/// # Industrial-Grade Design
+/// # Design
 ///
 /// - Uses `confy` for atomic file writes (crash-safe)
 /// - Fallback to Windows Registry for locked-down environments
 /// - All fields have sensible defaults via `Default` trait
 /// - Human-readable TOML format for easy manual editing
+/// - `#[serde(default)]` ensures backward compatibility when new fields are added
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppSettings {
     /// Render mode: "wallpaper" or "overlay"
@@ -85,36 +94,16 @@ pub struct AppSettings {
 }
 
 // Default value functions
-fn default_render_mode() -> String {
-    "wallpaper".to_string()
-}
-fn default_fps_limit() -> u32 {
-    60
-}
-fn default_enable_sound() -> bool {
-    true
-}
-fn default_enable_mouse() -> bool {
-    true
-}
-fn default_window_opacity() -> f32 {
-    1.0
-}
-fn default_vsync() -> bool {
-    true
-}
-fn default_use_dxgi_capture() -> bool {
-    true
-}
-fn default_multi_monitor() -> bool {
-    true
-}
-fn default_log_level() -> String {
-    "info".to_string()
-}
-fn default_schema_version() -> u32 {
-    1
-}
+fn default_render_mode() -> String { "wallpaper".to_string() }
+fn default_fps_limit() -> u32 { 60 }
+fn default_enable_sound() -> bool { true }
+fn default_enable_mouse() -> bool { true }
+fn default_window_opacity() -> f32 { 1.0 }
+fn default_vsync() -> bool { true }
+fn default_use_dxgi_capture() -> bool { true }
+fn default_multi_monitor() -> bool { true }
+fn default_log_level() -> String { "info".to_string() }
+fn default_schema_version() -> u32 { 1 }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -252,7 +241,6 @@ impl AppSettings {
                 .context("Registry key Software\\ScreenAnimation not found")?;
 
             // Helper to read a string value from registry
-            // SAFETY: All operations use valid handles and pre-allocated buffers
             unsafe fn read_reg_string(key: HKEY, name: &str) -> Option<String> {
                 let name_wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
                 let mut size: u32 = 0;
@@ -362,7 +350,6 @@ impl AppSettings {
                 let name_wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
                 let value_wide: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
                 let value_bytes = std::slice::from_raw_parts(value_wide.as_ptr() as *const u8, value_wide.len() * 2);
-
                 let _ = RegSetValueExW(key, PCWSTR(name_wide.as_ptr()), 0, REG_SZ, Some(value_bytes));
             }
 

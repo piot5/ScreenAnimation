@@ -6,6 +6,8 @@ authors = ["ScreenAnimation Contributors"]
 license = "MIT"
 repository = "https://github.com/piot5/ScreenAnimation"
 description = "GPU-accelerated screen animations and wallpaper engine using WGPU and DXGI"
+keywords = ["animation", "wallpaper", "wgpu", "dxgi", "gpu"]
+categories = ["multimedia::video", "rendering::graphics-api", "os::windows-apis"]
 
 [dependencies]
 anyhow = "1.0"
@@ -52,3 +54,7 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true

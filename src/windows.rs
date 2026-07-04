@@ -37,7 +37,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 ///
 /// # Memory Ownership
 ///
-/// - `hwnd`: Owned by Windows, must be destroyed via `DestroyWindow` (not implemented)
+/// - `hwnd`: Owned by Windows, must be destroyed via `DestroyWindow`
 /// - `surface`: Owned by wgpu, tied to HWND lifetime
 /// - `texture_bind_group`: Owned, references GPU resources in GpuCore
 /// - `uniform_buffer`: Owned, updated every frame with new uniform data
@@ -62,6 +62,10 @@ pub struct MonitorWindow {
     pub rect: RECT,
     /// Temporary buffer for desktop capture (BGRA format)
     pub buffer: Vec<u8>,
+    /// Window width in pixels (for resize handling)
+    pub width: u32,
+    /// Window height in pixels (for resize handling)
+    pub height: u32,
 }
 
 impl MonitorWindow {
@@ -91,6 +95,17 @@ impl MonitorWindow {
         bg_buf: &[u8],
         rect: RECT,
     ) -> anyhow::Result<Self> {
+        // Validate background buffer size
+        let expected_size = (w as usize) * (h as usize) * 4;
+        anyhow::ensure!(
+            bg_buf.len() >= expected_size,
+            "Background buffer too small: got {} bytes, expected at least {} ({}x{}x4)",
+            bg_buf.len(),
+            expected_size,
+            w,
+            h
+        );
+
         // Create GPU texture for background image using dedicated module
         let (bg_tex, bg_view) = create_background_texture(gpu, w, h);
 
@@ -145,28 +160,12 @@ impl MonitorWindow {
 
         // Create WGPU surface from native HWND
         // WindowWrapper implements the required traits for surface creation
-        // wgpu 0.24: Instance::create_surface takes impl Into<SurfaceTarget<'a>>
         let surface = inst
             .create_surface(WindowWrapper(hwnd))
             .context("Failed to create WGPU surface for monitor window")?;
 
-        // wgpu 0.24: Use get_capabilities instead of the removed get_supported_formats
-        // Get surface capabilities from the adapter (not instance)
-        // Note: we don't have the adapter here, so we use the standard configuration
-        // that matches our pipeline format
-        surface.configure(
-            &gpu.device,
-            &wgpu::SurfaceConfiguration {
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format: wgpu::TextureFormat::Bgra8UnormSrgb,
-                width: w,
-                height: h,
-                present_mode: wgpu::PresentMode::Fifo,
-                alpha_mode: wgpu::CompositeAlphaMode::PreMultiplied,
-                view_formats: vec![],
-                desired_maximum_frame_latency: 2,
-            },
-        );
+        // Configure surface with BGRA8 format matching our pipeline
+        Self::configure_surface(&gpu.device, &surface, w, h);
 
         Ok(Self {
             hwnd,
@@ -176,24 +175,66 @@ impl MonitorWindow {
             uniform_bind_group: u_bg,
             desktop_tex: bg_tex,
             rect,
-            // Pre-allocate buffer for desktop capture (4 bytes per pixel: BGRA)
             buffer: vec![0u8; (w * h * 4) as usize],
+            width: w,
+            height: h,
         })
     }
 
-    /// Clean up MonitorWindow resources.
+    /// Reconfigure the WGPU surface with new dimensions (e.g., after monitor resize).
     ///
-    /// This destroys the native window and releases GPU resources.
-    /// Note: WGPU resources are managed by the device and will be cleaned up automatically.
+    /// This must be called when the window size changes to avoid stale swapchain issues.
     ///
-    /// # Safety
+    /// # Arguments
     ///
-    /// - Must not be called while the window is still being used by the render loop
-    /// - After this call, the MonitorWindow must not be used again
-    pub unsafe fn destroy(&self) {
-        // Destroy the native window
-        // SAFETY: hwnd is a valid window handle created by CreateWindowExW
-        let _ = DestroyWindow(self.hwnd);
+    /// * `device` - WGPU device reference from GpuCore
+    /// * `new_w` - New width in pixels
+    /// * `new_h` - New height in pixels
+    pub fn resize(&mut self, device: &wgpu::Device, new_w: u32, new_h: u32) {
+        if new_w == 0 || new_h == 0 {
+            return; // Minimized windows have 0 dimensions
+        }
+        Self::configure_surface(device, &self.surface, new_w, new_h);
+        self.buffer = vec![0u8; (new_w * new_h * 4) as usize];
+        self.width = new_w;
+        self.height = new_h;
+    }
+
+    /// Helper: configure surface with given dimensions.
+    fn configure_surface(device: &wgpu::Device, surface: &wgpu::Surface<'static>, width: u32, height: u32) {
+        surface.configure(
+            device,
+            &wgpu::SurfaceConfiguration {
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                width,
+                height,
+                present_mode: wgpu::PresentMode::Fifo,
+                alpha_mode: wgpu::CompositeAlphaMode::PreMultiplied,
+                view_formats: vec![],
+                desired_maximum_frame_latency: 2,
+            },
+        );
+    }
+}
+
+/// Drop implementation for MonitorWindow: automatically destroys the native window
+/// when the MonitorWindow goes out of scope. This prevents window handle leaks.
+///
+/// Note: WGPU resources (surface, buffers, textures) are managed by the GPU device
+/// and will be cleaned up when the device is dropped. We only need to destroy the
+/// native HWND here.
+impl Drop for MonitorWindow {
+    fn drop(&mut self) {
+        if self.hwnd.0 != 0 {
+            // SAFETY: hwnd is a valid window handle created by CreateWindowExW.
+            // The window is being destroyed during Drop, which is safe as long as
+            // no other code is still referencing it (guaranteed by Rust ownership).
+            unsafe {
+                let _ = DestroyWindow(self.hwnd);
+            }
+            self.hwnd = HWND(0);
+        }
     }
 }
 
@@ -265,6 +306,11 @@ pub unsafe fn init_windows(
         LPARAM(&mut rects as *mut _ as isize), // User data (pointer to rects)
     );
 
+    if rects.is_empty() {
+        eprintln!("[windows] No monitors found via EnumDisplayMonitors");
+        return Vec::new();
+    }
+
     // For wallpaper mode: find WorkerW window behind desktop icons
     let workerw = if is_wp {
         GpuCore::fetch_worker_w()
@@ -273,11 +319,16 @@ pub unsafe fn init_windows(
     };
 
     // Create a window for each monitor
-    let mut windows = Vec::new();
+    let mut windows = Vec::with_capacity(rects.len());
 
     for &r in rects.iter() {
         // Calculate window dimensions from monitor RECT
         let (w, h) = ((r.right - r.left) as u32, (r.bottom - r.top) as u32);
+
+        if w == 0 || h == 0 {
+            eprintln!("[windows] Skipping monitor with zero dimensions");
+            continue;
+        }
 
         // CAPTURE DESKTOP FIRST (before creating the overlay window).
         // If we create the window first, the capture will get the transparent
@@ -312,18 +363,22 @@ pub unsafe fn init_windows(
             None, // No creation data
         );
 
+        if hwnd.0 == 0 {
+            eprintln!("[windows] CreateWindowExW failed for monitor");
+            continue;
+        }
+
         // Create MonitorWindow with all GPU resources
         match MonitorWindow::new_v1(gpu, inst, hwnd, w, h, &buf, r) {
             Ok(mw) => windows.push(mw),
             Err(e) => {
-                eprintln!("Monitor window failed: {}", e);
-                if is_wp {
-                    let _ = DestroyWindow(hwnd);
-                }
+                eprintln!("[windows] Monitor window failed: {}", e);
+                let _ = DestroyWindow(hwnd);
             }
         }
     }
 
+    eprintln!("[windows] Created {} monitor windows", windows.len());
     windows
 }
 
