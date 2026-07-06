@@ -173,7 +173,7 @@ enabled = false
 
 ### Step 2: shader.wgsl
 
-WGSL shader code. See examples in `examples/` directory.
+WSGL shader code. See examples in `examples/` directory.
 
 ```wgsl
 @fragment
@@ -199,7 +199,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 ## Example Animations Included
 
 | Animation | Type | Size | Purpose |
-|-----------|------|------|---------|
+|-----------|------|------|----------|
 | `livewallpaper.flow` | Wallpaper | 261 MB | Mouse-reactive wave on live desktop |
 | `screentransition.flow` | Animation | 290 MB | Multi-step screen transition (capture→detach→move→land) |
 | `animation1.flow` | Animation | 134 MB | Complex 3D transition effect |
@@ -214,7 +214,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 ### Engine Components
 
 | Component | Purpose |
-|-----------|---------|
+|-----------|----------|
 | `engine/` | WGPU core (device, pipelines, bind groups) |
 | `loader/` | `.flow` package parsing (ZIP deserialization) |
 | `logic/` | Uniform buffer calculations per frame |
@@ -240,7 +240,7 @@ FlowPackage → GpuCore → MonitorWindows → Render Loop
 ## Platform Support
 
 | OS | Status | Requirements |
-|----|--------|--------------|
+|----|--------|---------------|
 | **Windows 10/11** | ✅ Full support | DXGI + WGPU |
 | **Linux (Wayland)** | ✅ Full support | WGPU + Wayland |
 | **Linux (X11)** | ⏳ Partial | WGPU (no window management) |
@@ -305,7 +305,7 @@ Access frequency spectrum in shader (0-256 bands):
 ## Comparison: ScreenAnimation vs Alternatives
 
 | Feature | ScreenAnimation | Wallpaper Engine | OBS | Blender |
-|---------|-----------------|------------------|-----|---------|
+|---------|-----------------|------------------|-----|----------|
 | Open Source | ✅ Yes | ❌ No | ✅ Yes | ✅ Yes |
 | User Shaders | ✅ WGSL | ❌ No | ⚠️ Limited | ✅ Yes |
 | Portable Format | ✅ .flow | ❌ Proprietary | ❌ No | ⚠️ .blend files |
