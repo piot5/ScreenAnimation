@@ -35,17 +35,16 @@ Binaries in `target/release/`:
 
 ```bash
 # Live wallpaper: mouse-reactive wave distortion
-./target/release/animationengine Wallpaper examples/livewallpaper.flow
+./target/release/animationengine Wallpaper my_animation.flow
 
 # Screen transition: capture → detach → move → land
-./target/release/animationengine Animation examples/screentransition.flow
+./target/release/animationengine Animation my_animation.flow
 
-# Plasma effect
-./target/release/animationengine Wallpaper examples/plasma.flow
-
-# Kaleidoscope
-./target/release/animationengine Wallpaper examples/kaleidoscope.flow
+# Plasma / kaleidoscope / wave: procedural wallpapers
+./target/release/animationengine Wallpaper my_wave.flow
 ```
+
+> Example animations are distributed as **downloadable `.flow` assets** (Releases), not committed to the repo.
 
 ## The .flow Plugin System
 
@@ -196,18 +195,16 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 ./target/release/animationengine Animation my_animation.flow
 ```
 
-## Example Animations Included
+## Example Animations
 
-| Animation | Type | Size | Purpose |
-|-----------|------|------|----------|
-| `livewallpaper.flow` | Wallpaper | 261 MB | Mouse-reactive wave on live desktop |
-| `screentransition.flow` | Animation | 290 MB | Multi-step screen transition (capture→detach→move→land) |
-| `animation1.flow` | Animation | 134 MB | Complex 3D transition effect |
-| `plasma.flow` | Wallpaper | 1.1 KB | Pure procedural plasma (no assets) |
-| `kaleidoscope.flow` | Wallpaper | 1.3 KB | Symmetric kaleidoscope effect |
-| `wave.flow` | Wallpaper | 1.2 KB | Simple sine wave distortion |
-| `monitorswitch.flow` | Animation | 135 MB | Display switching animation |
-| `wallpaper1.flow` | Wallpaper | 25 GB | High-resolution wallpaper with complex shaders |
+Example animations (live wallpapers, screen transitions, plasma/kaleidoscope/wave) are distributed as **`.flow` release assets** to keep the repository lean. Grab them from the [Releases page](https://github.com/piot5/ScreenAnimation/releases).
+
+| Animation | Type | Purpose |
+|-----------|------|----------|
+| `livewallpaper.flow` | Wallpaper | Mouse-reactive wave on live desktop |
+| `screentransition.flow` | Animation | Multi-step screen transition (capture→detach→move→land) |
+| `plasma.flow` / `kaleidoscope.flow` / `wave.flow` | Wallpaper | Small procedural effects (no assets) |
+| `monitorswitch.flow` | Animation | Display switching animation |
 
 ## Architecture
 
@@ -299,7 +296,7 @@ Access frequency spectrum in shader (0-256 bands):
 ## Documentation
 
 - **[TUTORIAL.md](TUTORIAL.md)** — Step-by-step guide to creating animations
-- **[examples/](examples/)** — 10+ pre-made animations with source configs
+- **Example animations** — available as `.flow` assets in [Releases](https://github.com/piot5/ScreenAnimation/releases)
 - **WGSL Reference:** https://www.w3.org/TR/WGSL/
 
 ## Comparison: ScreenAnimation vs Alternatives
@@ -340,7 +337,7 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ## Quick Links
 
 - 📖 [Full Tutorial](TUTORIAL.md)
-- 🎨 [Example Animations](examples/)
+- 🎨 [Example Animations](https://github.com/piot5/ScreenAnimation/releases)
 - 🐛 [Issue Tracker](https://github.com/piot5/ScreenAnimation/issues)
 - 💬 [Discussions](https://github.com/piot5/ScreenAnimation/discussions)
 
