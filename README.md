@@ -172,7 +172,7 @@ enabled = false
 
 ### Step 2: shader.wgsl
 
-WSGL shader code. See examples in `examples/` directory.
+WSGL shader code. See example animations in [Releases](https://github.com/piot5/ScreenAnimation/releases).
 
 ```wgsl
 @fragment
