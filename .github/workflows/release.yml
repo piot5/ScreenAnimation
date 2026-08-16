@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build release binaries
+        run: cargo build --release
+
+      - name: Bundle binaries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ./publish
+          # ScreenAnimation builds three binaries (builder / cli / gui)
+          Get-ChildItem "target/release/*.exe" | Copy-Item -Destination ./publish/
+          # Config + docs for convenience
+          if (Test-Path "README.md")  { Copy-Item "README.md"     -Destination "./publish/" }
+          if (Test-Path "Cargo.toml") { Copy-Item "Cargo.toml"    -Destination "./publish/" }
+          Compress-Archive -Path ./publish/* -DestinationPath ./screen_animation.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: screen_animation.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
